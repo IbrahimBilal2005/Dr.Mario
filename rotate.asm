@@ -118,12 +118,17 @@ generate_complete:
         j keyboard_input_complete
         
     handle_rotate:
-    	jal rotate
-    	
-        j keyboard_input_complete
+       	jal erase_capsule		# erase the current capsule
+    	jal rotate			# determine updated location based on rotation 
+    	jal draw_capsule 		# redraw the capsule based on any updates
+        j keyboard_input_complete	
+    
     handle_move_left:
-
+	jal erase_capsule		# erase the current capsule
+	jal move_left			# determine updated location based on left move 
+	jal draw_capsule		# redraw the capsule based on any updates
         j keyboard_input_complete
+    
     handle_move_down:
        
         j keyboard_input_complete
@@ -294,11 +299,7 @@ rotate_to_vertical:
     lw $t7, color_black             # Load background color (black)
     bne $t6, $t7, rotate_fail     # If not empty, play error sound and return
 
-    # Erase old capsule, update position, redraw
-    jal erase_capsule
-    
     sw $t3, capsule_right_pos     # Update right capsule position (now above)
-    jal draw_capsule              # Draw the capsule at the new rotated position
     j rotate_end                  # Jump to the end
 
 rotate_to_horizontal:
@@ -306,21 +307,15 @@ rotate_to_horizontal:
     addi $t3, $t0, 4              # $t3 = left_pos + 4 (move to the right)
 
     # Get memory address for the new position
-    #lw $t4, ADDR_DSPL             # Load display base address
-    #add $t5, $t4, $t3             # Compute address of new position
-    lw $t4, ADDR_DSPL  
-    add $t5, $t4, $t3  
+    lw $t4, ADDR_DSPL             # Load display base address
+    add $t5, $t4, $t3             # Compute address of new position
     lw $t6, 0($t5)                 # Load color value at new position
 
     # Check if the new position is occupied
     lw $t7, color_black             # Load background color (black)
     bne $t6, $t7, rotate_fail     # If not empty, play error sound and return
-
-    # Erase old capsule, update position, redraw
-    jal erase_capsule
     
     sw $t3, capsule_right_pos     # Update right capsule position (now to the right)
-    jal draw_capsule              # Draw the capsule at the new rotated position
     j rotate_end                  # Jump to the end
 
 rotate_fail:
@@ -336,7 +331,7 @@ rotate_end:
 
 pause:
 game_end:
-move_left:
+
 move_right:
 move_down:
 reset:
