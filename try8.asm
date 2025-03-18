@@ -249,9 +249,10 @@ move_down:
     lw $a0, capsule_left_pos
     lw $a1, capsule_right_pos
 
-    # Check if it reaches the bottom (Y = 58, last row)
-    li $t2, 3272  # Bottom boundary
+    # Check if it reaches the bottom (bottom row)
+    li $t2, 3464  # Correct bottom boundary (one row lower)
     bge $a0, $t2, stop_moving
+    bge $a1, $t2, stop_moving  # Also check right side
 
     # Determine if the capsule is vertical or horizontal
     sub $t3, $a1, $a0  # Difference between positions
@@ -273,17 +274,18 @@ check_vertical:
     j move_down_continue   # Otherwise, move down
 
 check_horizontal:
-    # Check the pixel below both halves
+    # Check the pixel below left half
     addi $t7, $a0, 128
     add $t8, $t0, $t7
     lw $t9, 0($t8)  # Load color of the pixel below left half
+    bnez $t9, stop_moving  # If not black, stop moving
 
+    # Check the pixel below right half
     addi $t7, $a1, 128
     add $t8, $t0, $t7
-    lw $t9, 0($t8)  # Load color of the pixel below right half
+    lw $s1, 0($t8)  # Load color of the pixel below right half
+    bnez $s1, stop_moving  # If not black, stop moving
 
-    or $t9, $t9, $t9  # If either is nonzero (not black), stop
-    bnez $t9, stop_moving
     j move_down_continue
 
 move_down_continue:
@@ -316,9 +318,88 @@ stop_moving:
 # Function: move_down_fast ('s' key to drop quickly)
 ##############################################################################
 move_down_fast:
-    jal move_down  # Move capsule down instantly
-    j game_loop    # Keep dropping (no delay)
+    # Save return address to stack
+    addi $sp, $sp, -4   
+    sw $ra, 0($sp)
 
+    # First erase the current capsule
+    jal erase_capsule
+       
+    # Load display address and current positions
+    lw $t5, ADDR_DSPL
+    lw $t0, capsule_left_pos
+    lw $t1, capsule_right_pos
+
+    # Check if capsule is horizontal or vertical
+    sub $t3, $t1, $t0
+    li $t4, 4
+    beq $t3, $t4, fast_down_horizontal  # If t1-t0 = 4, it's horizontal
+    j fast_down_vertical                # Otherwise it's vertical
+
+fast_down_horizontal:
+    # Keep moving down until we hit something
+horizontal_loop:
+    # Calculate positions one row down
+    addi $t2, $t0, 128   # Left position + 1 row
+    addi $t3, $t1, 128   # Right position + 1 row
+    
+    # Check if we've hit the bottom boundary
+    li $t6, 3592         # Correct bottom boundary (one row lower)
+    bge $t2, $t6, end_fast_drop
+    bge $t3, $t6, end_fast_drop  # Also check right side
+
+    # Check if there's something below left half
+    add $t7, $t5, $t2    # Address of pixel below left half
+    lw $t8, 0($t7)       # Load color at that position
+    bnez $t8, end_fast_drop  # If not black (0), stop
+
+    # Check if there's something below right half
+    add $t7, $t5, $t3    # Address of pixel below right half
+    lw $t8, 0($t7)       # Load color at that position
+    bnez $t8, end_fast_drop  # If not black (0), stop
+
+    # Move capsule down one row
+    move $t0, $t2
+    move $t1, $t3
+    
+    j horizontal_loop    # Continue checking next row
+
+fast_down_vertical:
+    # Keep moving down until we hit something
+vertical_loop:
+    # Check both pieces for vertical orientation
+    addi $t2, $t0, 128   # Top piece + 1 row down
+    addi $t3, $t1, 128   # Bottom piece + 1 row down
+    
+    # Check if we've hit the bottom boundary
+    li $t6, 3592         # Correct bottom boundary (one row lower)
+    bge $t3, $t6, end_fast_drop  # Check if bottom piece hits boundary
+
+    # Check if there's something below bottom half
+    add $t7, $t5, $t3    # Address of pixel below bottom half
+    lw $t8, 0($t7)       # Load color at that position
+    bnez $t8, end_fast_drop  # If not black (0), stop
+
+    # Move capsule down one row
+    addi $t0, $t0, 128   # Move top half down
+    addi $t1, $t1, 128   # Move bottom half down
+    
+    j vertical_loop      # Continue checking next row
+
+end_fast_drop:
+    # Update capsule positions with final location
+    sw $t0, capsule_left_pos
+    sw $t1, capsule_right_pos
+    
+    # Draw capsule at new position
+    jal draw_capsule
+
+    # Restore return address
+    lw $ra, 0($sp)
+    addi $sp, $sp, 4
+    
+    j continue_fall  # Return to main loop
+    
 ##############################################################################
 # Function: move_left ('a' key)
 ##############################################################################
