@@ -36,7 +36,7 @@ capsule_left:  .word 0  # Stores left half of capsule
 capsule_right: .word 0  # Stores right half of capsule
 capsule_left_pos:  .word 552  # Initial position of left half
 capsule_right_pos: .word 680  # Initial position of right half
-lfsr_seed:     .word 0xA1E6  # Initial LFSR seed (change for different sequences)
+lfsr_seed:     .word 0   # Initial LFSR seed (change for different sequences)
 ##############################################################################
 # Code
 ##############################################################################
@@ -44,40 +44,23 @@ lfsr_seed:     .word 0xA1E6  # Initial LFSR seed (change for different sequences
 	.globl main
 
 main:
+
+    jal initialize_random_seed
+    
     lw $t1, gray_color  # Load gray color
     lw $t4, color_red
     lw $t5, color_blue
     lw $t6, color_yellow
     lw $t0, ADDR_DSPL   # Load display base address
+	
 
     # Step 1: Draw the medicine bottle (Only Once)
     jal draw_box  
 
-    # Step 2: Generate first half color
-generate_first_half:
-    jal lfsr_next  # Generate next LFSR value
-    andi $t1, $v0, 0x0003  # Mask lowest 2 bits (0-3 range)
-    beq $t1, 3, generate_first_half  # If 3, retry (only allow 0,1,2)
+    # Step 2: Generate capsule colors (replacing the old first/second half generation)
+    jal generate_capsule_colors  # This new function handles both colors
 
-    la $t2, color_red  # Base address of colors
-    sll $t1, $t1, 2    # Multiply by 4 (word size)
-    add $t2, $t2, $t1  # Get address of chosen color
-    lw $t3, 0($t2)     # Load the first capsule half color
-    sw $t3, capsule_left  # Store first half
-
-    # Step 3: Generate second half color
-generate_second_half:
-    jal lfsr_next
-    andi $t1, $v0, 0x0003
-    beq $t1, 3, generate_second_half  # If 3, retry
-
-    la $t2, color_red
-    sll $t1, $t1, 2
-    add $t2, $t2, $t1
-    lw $t4, 0($t2)    # Load the second capsule half color
-    sw $t4, capsule_right  # Store second half
-
-    # Step 4: Draw Capsule
+    # Step 3: Draw Capsule
     li $a0, 552  # First half position
     li $a1, 680  # Second half position
     jal draw_capsule  # Draw capsule
@@ -118,22 +101,125 @@ continue_fall:
     # if no more viruses, end game, else generate new capsule by looping back to game loop
 
 ##############################################################################
-# Function: lfsr_next (16-bit LFSR Pseudo-Random Number Generator)
+# Function: initialize_random_seed
+# Uses system time to generate a seed for the LFSR
+##############################################################################
+initialize_random_seed:
+    # Get system time
+    li $v0, 30           # syscall 30: get system time
+    syscall              # time stored in $a0 (low) and $a1 (high)
+    
+    # Use the lower 16 bits of the low word as our seed
+    andi $t0, $a0, 0xFFFF
+    
+    # Ensure the seed is never zero (which is bad for LFSR)
+    beqz $t0, use_fallback_seed
+    
+    # Store the seed
+    sw $t0, lfsr_seed
+    jr $ra
+    
+use_fallback_seed:
+    # In the unlikely event that we get a 0 seed, use a fallback
+    li $t0, 0xACE1
+    sw $t0, lfsr_seed
+    jr $ra
+    
+##############################################################################
+# Function: lfsr_next (Improved 16-bit LFSR)
 ##############################################################################
 lfsr_next:
-    lw $s0, lfsr_seed  # Load LFSR seed
+    lw $t0, lfsr_seed      # Load current seed
+    
+    # Check if seed is 0 (bad state)
+    beqz $t0, init_lfsr_seed
+    
+    # Update LFSR (taps at 16, 14, 13, 11)
+    move $t1, $t0
+    srl $t2, $t1, 0        # Bit 0
+    srl $t3, $t1, 2        # Bit 2
+    srl $t4, $t1, 3        # Bit 3
+    srl $t5, $t1, 5        # Bit 5
+    
+    # XOR all taps
+    xor $t6, $t2, $t3
+    xor $t6, $t6, $t4
+    xor $t6, $t6, $t5
+    
+    # Mask to get just the least significant bit
+    andi $t6, $t6, 1
+    
+    # Shift and insert feedback bit
+    srl $t0, $t0, 1
+    sll $t6, $t6, 15
+    or $t0, $t0, $t6
+    
+    # Store new seed
+    sw $t0, lfsr_seed
+    
+    # Return new value
+    move $v0, $t0
+    jr $ra
 
-    # LFSR feedback (XOR taps at 16, 14, 13, 11)
-    li $t1, 0xB400     # Polynomial for taps (0b1011_0100_0000_0000)
-    and $t2, $s0, 1    # Get lowest bit
-    beqz $t2, no_xor   # If LSB = 0, skip XOR
-    xor $s0, $s0, $t1  # Apply XOR with polynomial
+init_lfsr_seed:
+    # Initialize with a non-zero seed
+    li $t0, 0xACE1      # Different initial value
+    sw $t0, lfsr_seed
+    
+    # Return the new seed
+    move $v0, $t0
+    jr $ra
 
-no_xor:
-    srl $s0, $s0, 1  # Shift right (divide by 2)
-    sw $s0, lfsr_seed  # Store updated LFSR seed
-    move $v0, $s0  # Return LFSR value
-    jr $ra  # Return
+##############################################################################
+# Function: generate_capsule_colors (Generate random colors for capsule)
+##############################################################################
+generate_capsule_colors:
+    # Save return address
+    addi $sp, $sp, -4
+    sw $ra, 0($sp)
+    
+    # Generate first half color
+    jal generate_random_color
+    sw $v0, capsule_left
+    
+    # Generate second half color
+    jal generate_random_color
+    sw $v0, capsule_right
+    
+    # Restore return address
+    lw $ra, 0($sp)
+    addi $sp, $sp, 4
+    jr $ra
+
+##############################################################################
+# Function: generate_random_color (Returns a random color from the color list)
+##############################################################################
+generate_random_color:
+    # Save return address
+    addi $sp, $sp, -4
+    sw $ra, 0($sp)
+    
+    # Generate a random number
+    jal lfsr_next
+    move $t0, $v0
+    
+    # Use modulo 3 to get a number between 0-2
+    # We'll use division to get remainder when divided by 3
+    li $t1, 3
+    div $t0, $t1
+    mfhi $t2    # $t2 contains the remainder (0, 1, or 2)
+    
+    # Map the remainder to a color index
+    la $t3, color_red    # Base address of color array
+    sll $t4, $t2, 2      # Multiply by 4 (word size)
+    add $t3, $t3, $t4    # Compute address of color
+    lw $v0, 0($t3)       # Load the color
+    
+    # Restore return address and return
+    lw $ra, 0($sp)
+    addi $sp, $sp, 4
+    jr $ra
+    
 
 ##############################################################################
 # Function: draw_capsule (Place Random Capsule in Memory)
@@ -588,16 +674,28 @@ rotate_end:
     jr $ra                        # Return
 
 ##############################################################################
-# Function: generate_new_capsule (Spawn a new capsule at the top)
+# Function: generate_new_capsule (Spawn a new capsule at the top with random colors)
 ##############################################################################
 generate_new_capsule:
+    # Save return address
+    addi $sp, $sp, -4
+    sw $ra, 0($sp)
+    
+    # Use the improved color generation system
+    jal generate_capsule_colors  # This will set both capsule_left and capsule_right colors
+    
     # Reset capsule position to the top
-    li $a0, 552  # Reset to top row
-    li $a1, 680
-
-    sw $a0, capsule_left_pos
-    sw $a1, capsule_right_pos
-
-    jal draw_capsule  # Draw new capsule
-    j game_loop
+    li $t0, 552  # Reset to top position for left half (middle of the top)
+    li $t1, 556  # Position for horizontal capsule (right next to left part)
+    
+    # Store the new positions
+    sw $t0, capsule_left_pos
+    sw $t1, capsule_right_pos
+    
+    # Draw the new capsule with its random colors
+    jal draw_capsule
+    
+    # Restore return address
+    lw $ra, 0($sp)
+    addi $sp, $sp, 4
     jr $ra
