@@ -83,7 +83,9 @@ generate_second_half:
     jal draw_capsule  # Draw capsule
 
 game_loop:
-	
+    # Speed up gravity - reduce delay for a more natural fall speed
+    li $v0, 32  # Reduce delay for faster gravity
+    syscall
      #logic for generating new capsule
      
     after_capsule_generate:
@@ -110,15 +112,10 @@ game_loop:
    	# logic to check if capsule has stopped and connected 4 colours
   
 continue_fall:
-    # Speed up gravity - reduce delay for a more natural fall speed
-    li $v0, 32  # Reduce delay for faster gravity
-    syscall
-    jal move_down  # Continue capsule falling
-    
-    # if no more viruses, end game, else generate new capsule by looping back to game loop
-    
-    j after_capsule_generate
 
+    jal move_down  # Continue capsule falling
+    j game_loop
+    # if no more viruses, end game, else generate new capsule by looping back to game loop
 
 ##############################################################################
 # Function: lfsr_next (16-bit LFSR Pseudo-Random Number Generator)
@@ -256,6 +253,40 @@ move_down:
     li $t2, 3272  # Bottom boundary
     bge $a0, $t2, stop_moving
 
+    # Determine if the capsule is vertical or horizontal
+    sub $t3, $a1, $a0  # Difference between positions
+
+    # If difference is 128, it's vertical
+    li $t4, 128
+    beq $t3, $t4, check_vertical
+
+    # Otherwise, it's horizontal
+    j check_horizontal
+
+check_vertical:
+    # Check the pixel below the lower half
+    addi $t7, $a1, 128
+    add $t8, $t0, $t7
+    lw $t9, 0($t8)  # Load color of the pixel below
+
+    bnez $t9, stop_moving  # If it's not black, stop moving
+    j move_down_continue   # Otherwise, move down
+
+check_horizontal:
+    # Check the pixel below both halves
+    addi $t7, $a0, 128
+    add $t8, $t0, $t7
+    lw $t9, 0($t8)  # Load color of the pixel below left half
+
+    addi $t7, $a1, 128
+    add $t8, $t0, $t7
+    lw $t9, 0($t8)  # Load color of the pixel below right half
+
+    or $t9, $t9, $t9  # If either is nonzero (not black), stop
+    bnez $t9, stop_moving
+    j move_down_continue
+
+move_down_continue:
     # Clear previous position (set to background color)
     add $t8, $t0, $a0
     sw $zero, 0($t8)  # Clear left half
@@ -277,7 +308,7 @@ move_down:
     j game_loop  # Continue looping
 
 stop_moving:
-    # When it reaches the bottom, generate a new capsule
+    # When it reaches the bottom or is blocked, generate a new capsule
     jal generate_new_capsule
     j game_loop
 
@@ -297,23 +328,45 @@ move_left:
     lw $a0, capsule_left_pos
     lw $a1, capsule_right_pos
 
-    # Calculate current level (Y position / 128)
-    div $t3, $a0, 128  # Get current level (integer division)
-    mflo $t3           # Store quotient (level number)
+    # Determine if the capsule is vertical or horizontal
+    sub $t3, $a1, $a0  # Difference between positions
 
-    # Calculate left boundary: 12 pixels from start of level
-    mul $t2, $t3, 128  # Base of current level
-    addi $t2, $t2, 12  # Add 12 pixels
+    # If difference is 128, it's vertical
+    li $t4, 128
+    beq $t3, $t4, check_vertical_left
 
-    # Prevent moving past the left boundary
-    ble $a0, $t2, continue_fall  # If at left limit, don't move
+    # Otherwise, it's horizontal
+    j check_horizontal_left
 
-    # Calculate previous addresses to clear
-    add $t8, $t0, $a0  # Address of left half
-    add $t9, $t0, $a1  # Address of right half
+check_vertical_left:
+    # Check left of both top and bottom halves
+    subi $t7, $a0, 4  # Left of top half
+    add $t8, $t0, $t7
+    lw $t9, 0($t8)    # Load color of pixel
 
-    # Clear previous location
+    subi $t7, $a1, 4  # Left of bottom half
+    add $t8, $t0, $t7
+    lw $t9, 0($t8)    # Load color of pixel
+
+    or $t9, $t9, $t9  # If either pixel is nonzero (not black), stop
+    bnez $t9, continue_fall
+    j move_left_continue
+
+check_horizontal_left:
+    # Check only the leftmost pixel
+    subi $t7, $a0, 4  # Left of leftmost half
+    add $t8, $t0, $t7
+    lw $t9, 0($t8)    # Load color of pixel
+
+    bnez $t9, continue_fall  # If not black, don't move
+    j move_left_continue
+
+move_left_continue:
+    # Clear previous position (set to background color)
+    add $t8, $t0, $a0
     sw $zero, 0($t8)  # Clear left half
+
+    add $t9, $t0, $a1
     sw $zero, 0($t9)  # Clear right half
 
     # Move left by 1 pixel (4 bytes per pixel)
@@ -326,8 +379,9 @@ move_left:
 
     # Redraw capsule at new location
     jal draw_capsule
-    j move_down
-    jr $ra
+
+    j move_down  # Continue falling
+
 ##############################################################################
 # Function: move_right ('d' key)
 ##############################################################################
@@ -337,23 +391,45 @@ move_right:
     lw $a0, capsule_left_pos
     lw $a1, capsule_right_pos
 
-    # Calculate current level (Y position / 128)
-    div $t3, $a0, 128  # Get current level (integer division)
-    mflo $t3           # Store quotient (level number)
+    # Determine if the capsule is vertical or horizontal
+    sub $t3, $a1, $a0  # Difference between positions
 
-    # Calculate right boundary: 56 pixels from start of level
-    mul $t2, $t3, 128  # Base of current level
-    subi $t2, $t2, 56  # 56 pixels away from right of level
+    # If difference is 128, it's vertical
+    li $t4, 128
+    beq $t3, $t4, check_vertical_right
 
-    # Prevent moving past the right boundary
-    ble $a1, $t2, continue_fall  # If at right limit, don't move
+    # Otherwise, it's horizontal
+    j check_horizontal_right
 
-    # Calculate previous addresses to clear
-    add $t8, $t0, $a0  # Address of left half
-    add $t9, $t0, $a1  # Address of right half
+check_vertical_right:
+    # Check right of both top and bottom halves
+    addi $t7, $a0, 4  # Right of top half
+    add $t8, $t0, $t7
+    lw $t9, 0($t8)    # Load color of pixel
 
-    # Clear previous location
+    addi $t7, $a1, 4  # Right of bottom half
+    add $t8, $t0, $t7
+    lw $t9, 0($t8)    # Load color of pixel
+
+    or $t9, $t9, $t9  # If either pixel is nonzero (not black), stop
+    bnez $t9, continue_fall
+    j move_right_continue
+
+check_horizontal_right:
+    # Check only the rightmost pixel
+    addi $t7, $a1, 4  # Right of rightmost half
+    add $t8, $t0, $t7
+    lw $t9, 0($t8)    # Load color of pixel
+
+    bnez $t9, continue_fall  # If not black, don't move
+    j move_right_continue
+
+move_right_continue:
+    # Clear previous position (set to background color)
+    add $t8, $t0, $a0
     sw $zero, 0($t8)  # Clear left half
+
+    add $t9, $t0, $a1
     sw $zero, 0($t9)  # Clear right half
 
     # Move right by 1 pixel (4 bytes per pixel)
@@ -366,8 +442,8 @@ move_right:
 
     # Redraw capsule at new location
     jal draw_capsule
-    j move_down
-    jr $ra
+
+    j move_down  # Continue falling
 
 ##############################################################################
 # Function: rotate_capsule ('w' key)
@@ -430,8 +506,6 @@ rotate_end:
     addi $sp, $sp, 4              
     jr $ra                        # Return
 
-
-    
 ##############################################################################
 # Function: generate_new_capsule (Spawn a new capsule at the top)
 ##############################################################################
@@ -444,4 +518,5 @@ generate_new_capsule:
     sw $a1, capsule_right_pos
 
     jal draw_capsule  # Draw new capsule
+    j game_loop
     jr $ra
