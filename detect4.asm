@@ -727,7 +727,7 @@ generate_new_capsule:
 # Function: check_for_matches (Remove 4+ in a row of same color)
 ##############################################################################
 check_for_matches:
-lw $t0, ADDR_DSPL      # $t0 = base address = 0x10008000
+    lw $t0, ADDR_DSPL      # $t0 = base address = 0x10008000
     addi $sp, $sp, -4
     sw $ra, 0($sp)
 
@@ -746,7 +746,7 @@ check_match_pixel:
     lw $t3, gray_color
     beq $t2, $t3, next_pixel
 
-        #####################
+    #####################
     # Horizontal match
     #####################
     li $t4, 1              # Match count = 1 (we're on a valid pixel)
@@ -782,10 +782,32 @@ clear_horiz_loop:
     mul $s3, $s2, 4
     add $s4, $t8, $s3       # pixel offset = t8 + 4*i
     add $s5, $t0, $s4       # actual address
-    sw $zero, 0($s5)
+    sw $zero, 0($s5)        # Clear the matching pixel
+    
+    # Mark all pixels above as unsupported
+    move $s6, $s4           # Save current position
+    li $s7, 1               # Counter for rows above
+    
+mark_above_loop:
+    addi $s6, $s6, -128     # Move up one row
+    add $s5, $t0, $s6       # Get address of pixel above
+    lw $t7, 0($s5)          # Get color
+    beqz $t7, next_mark_above # Skip if black
+    lw $t6, gray_color
+    beq $t7, $t6, next_mark_above # Skip if wall
+    
+    # Clear the "supported" bit
+    andi $t7, $t7, 0x7FFFFFFF
+    sw $t7, 0($s5)          # Save back the unsupported pixel
+    
+next_mark_above:
+    addi $s7, $s7, 1
+    li $t7, 27              # Check up to 27 rows
+    blt $s7, $t7, mark_above_loop
+    
+    # Move to next horizontal pixel
     addi $s2, $s2, 1
     blt $s2, $t4, clear_horiz_loop
-
 
 skip_horiz_clear:
 
