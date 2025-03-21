@@ -29,27 +29,28 @@ color_red:    .word 0xFF0000  # Red
 color_blue:   .word 0x0000FF  # Blue
 color_yellow: .word 0xFFFF00  # Yellow
 color_white: .word 0xFFFFFF	# White 
+color_green: .word 0x39FF14 #Green
 
 game_over_flag: .word 0       # 0 = game running, 1 = game over
 
 GAME_OVER_ARRAY:
     .word
     # "GAME OVER" represented as a 19x11 grid (0 = blank, -1 = pixel)
-    0, -1, -1, 0, 0, 0, 0, -1, 0, 0, -1, 0, 0, 0, -1, 0, 0, -1, -1,  # G A M E
-    -1, 0, 0, 0, 0, 0, -1, 0, -1, 0, -1, -1, 0, -1, -1, 0, -1, 0, 0,
-    -1, 0, -1, -1, -1, 0, -1, -1, -1, 0, -1, -1, -1, -1, -1, 0, -1, -1, 0,
-    -1, 0, 0, -1, 0, 0, -1, 0, -1, 0, -1, 0, -1, 0, -1, 0, -1, 0, 0,
-    0, -1, -1, 0, 0, 0, -1, 0, -1, 0, -1, 0, 0, 0, -1, 0, 0, -1, -1,
+    0, -1, -1, 0, 0, 0, 0, -1, 0, 0, -1, 0, 0, 0, -1, 0, 0, -1, -1, 0,  # G A M E
+    -1, 0, 0, 0, 0, 0, -1, 0, -1, 0, -1, -1, 0, -1, -1, 0, -1, 0, 0, 0,
+    -1, 0, -1, -1, -1, 0, -1, -1, -1, 0, -1, -1, -1, -1, -1, 0, -1, -1, 0, 0,
+    -1, 0, 0, -1, 0, 0, -1, 0, -1, 0, -1, 0, -1, 0, -1, 0, -1, 0, 0, 0,
+    0, -1, -1, 0, 0, 0, -1, 0, -1, 0, -1, 0, 0, 0, -1, 0, 0, -1, -1, 0,
     
     # Empty row between "GAME" and "OVER"
-    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
     
-    # "OVER" as a 19x5 grid
-    0, -1, 0, 0, -1, 0, 0, 0, -1, 0, 0, -1, -1, 0, -1, -1, 0, 0, 0,  # O V E R
-    -1, 0, -1, 0, -1, -1, 0, -1, -1, 0, -1, 0, 0, 0, -1, 0, -1, 0, 0, 
-    -1, 0, -1, 0, 0, -1, 0, -1, 0, 0, -1, -1, 0, 0, -1, -1, 0, 0, 0,
-    -1, 0, -1, 0, 0, -1, -1, -1, 0, 0, -1, 0, 0, 0, -1, 0, -1, 0, 0, 
-    0, -1, 0, 0, 0, 0, -1, 0, 0, 0, 0, -1, -1, 0, -1, 0, 0, -1, 0
+    # "OVER" as a 20x5 grid
+    0, 0, -1, 0, 0, -1, 0, 0, 0, -1, 0, 0, -1, -1, 0, -1, -1, 0, 0, 0,  # O V E R
+    0, -1, 0, -1, 0, -1, -1, 0, -1, -1, 0, -1, 0, 0, 0, -1, 0, -1, 0, 0, 
+    0, -1, 0, -1, 0, 0, -1, 0, -1, 0, 0, -1, -1, 0, 0, -1, -1, 0, 0, 0,
+    0, -1, 0, -1, 0, 0, -1, -1, -1, 0, 0, -1, 0, 0, 0, -1, 0, -1, 0, 0, 
+    0, 0, -1, 0, 0, 0, 0, -1, 0, 0, 0, 0, -1, -1, 0, -1, 0, 0, -1, 0
     
 PRESS_R_ARRAY:
     .word
@@ -918,78 +919,69 @@ ghost_drop_loop:
     addi $t6, $t1, 128   # Left position + 1 row
     addi $t7, $t2, 128   # Right position + 1 row
     
-# Also check for the actual bottle base pixels
-add $t8, $t0, $t6    # Address of pixel below left half
-lw $t9, 0($t8)       # Load color at that position
-lw $t4, gray_color   # Load bottle color
-beq $t9, $t4, end_ghost_calc  # If it's the bottle, stop here
+    # Check for bottle base pixels
+    add $t8, $t0, $t6    # Address of pixel below left half
+    lw $t9, 0($t8)       # Load color at that position
+    lw $t4, gray_color   # Load bottle color
+    beq $t9, $t4, end_ghost_calc  # If it's the bottle, stop here
 
-add $t8, $t0, $t7    # Address of pixel below right half
-lw $t9, 0($t8)       # Load color at that position
-beq $t9, $t4, end_ghost_calc  # If it's the bottle, stop here
+    add $t8, $t0, $t7    # Address of pixel below right half
+    lw $t9, 0($t8)       # Load color at that position
+    beq $t9, $t4, end_ghost_calc  # If it's the bottle, stop here
     
     # Determine which pixel(s) to check based on orientation
-    li $t4, 4                   # Right is to the right of left
+    li $t4, 4                   # Horizontal (right)
     beq $t3, $t4, check_horizontal_ghost
     
-    li $t4, 128                 # Right is below left
-    beq $t3, $t4, check_vertical_down_ghost
-    
-    li $t4, -4                  # Right is to the left of left
+    li $t4, -4                  # Horizontal (left)
     beq $t3, $t4, check_horizontal_ghost
     
-    li $t4, -128                # Right is above left
-    beq $t3, $t4, check_vertical_up_ghost
+    li $t4, 128                 # Vertical (down)
+    beq $t3, $t4, check_vertical_ghost
+    
+    li $t4, -128                # Vertical (up)
+    beq $t3, $t4, check_vertical_ghost
     
     # Default case - shouldn't happen
     j end_ghost_calc
 
 check_horizontal_ghost:
-    # Check below left piece
+    # Get both pixel colors below capsule pieces
     add $t8, $t0, $t6    # Address of pixel below left half
     lw $t9, 0($t8)       # Load color at that position
-    bnez $t9, check_if_ghost_left  # If not black, check if it's a ghost
     
-    # Check below right piece
-    add $t8, $t0, $t7    # Address of pixel below right half
-    lw $t9, 0($t8)       # Load color at that position
-    bnez $t9, check_if_ghost_right  # If not black, check if it's a ghost
+    add $t4, $t0, $t7    # Address of pixel below right half
+    lw $t5, 0($t4)       # Load color at that position
     
-    # Both are black, continue dropping
+    # If both are black (0), continue dropping
+    beqz $t9, check_right_pixel
+    
+    # Left pixel has color, check if it's ghost
+    lw $t4, ghost_color
+    bne $t9, $t4, end_ghost_calc  # If not ghost color, stop
+    
+check_right_pixel:    
+    beqz $t5, update_ghost_pos  # Right is black, continue dropping
+    
+    # Right pixel has color, check if it's ghost
+    lw $t4, ghost_color
+    bne $t5, $t4, end_ghost_calc  # If not ghost color, stop
+    
+    # Both pixels are either black or ghost, continue dropping
     j update_ghost_pos
+
+check_vertical_ghost:
+    # For vertical, only check below the bottom piece
+    beq $t3, 128, check_bottom_right  # If right is below, check right
     
-check_if_ghost_left:
-    # Check if left position has ghost color
-    lw $t4, ghost_color
-    beq $t9, $t4, check_right_after_ghost_left  # If ghost color, check right
-    j end_ghost_calc     # Otherwise, stop here
+    # Otherwise, left is below so check left
+    add $t8, $t0, $t6    # Address of pixel below left half
+    j check_vertical_common
     
-check_right_after_ghost_left:
-    # Check below right piece after confirming ghost on left
+check_bottom_right:
     add $t8, $t0, $t7    # Address of pixel below right half
-    lw $t9, 0($t8)       # Load color at that position
-    bnez $t9, check_if_ghost_right  # If not black, check if it's a ghost
-    j update_ghost_pos   # Right is black, continue dropping
     
-check_if_ghost_right:
-    # Check if right position has ghost color
-    lw $t4, ghost_color
-    beq $t9, $t4, update_ghost_pos  # If ghost color, continue
-    j end_ghost_calc     # Otherwise, stop here
-
-check_vertical_down_ghost:
-    # Only check below bottom piece (right)
-    add $t8, $t0, $t7    # Address of pixel below bottom half
-    lw $t9, 0($t8)       # Load color at that position
-    beqz $t9, update_ghost_pos  # If black (0), continue
-    
-    lw $t4, ghost_color
-    beq $t9, $t4, update_ghost_pos  # If ghost color, continue
-    j end_ghost_calc     # Otherwise, stop here
-
-check_vertical_up_ghost:
-    # Only check below bottom piece (left)
-    add $t8, $t0, $t6    # Address of pixel below bottom half
+check_vertical_common:
     lw $t9, 0($t8)       # Load color at that position
     beqz $t9, update_ghost_pos  # If black (0), continue
     
@@ -1038,12 +1030,11 @@ draw_ghost_capsule:
     lw $t0, ADDR_DSPL      # Load display base address
     lw $t1, ghost_color    # Load ghost color
     
-    # Draw left half
+    # Draw both halves of the ghost
     lw $t2, ghost_left_pos
     add $t3, $t0, $t2
     sw $t1, 0($t3)
     
-    # Draw right half
     lw $t2, ghost_right_pos
     add $t3, $t0, $t2
     sw $t1, 0($t3)
@@ -1058,34 +1049,31 @@ skip_ghost_draw:
 # Function: erase_ghost_capsule (Erase the ghost capsule)
 ##############################################################################
 erase_ghost_capsule:
-    # Load the black color
+    # Load the black color and display address
     lw $t0, color_black   # $t0 = black color (0x000000)
+    lw $t3, ADDR_DSPL
     
     # Load the ghost capsule's current positions
     lw $t1, ghost_left_pos
     lw $t2, ghost_right_pos
     
-    # Only erase if positions are not zero
-    beqz $t1, ghost_erase_done
-    beqz $t2, ghost_erase_done
+    # Only erase if positions are not zero (quick check both at once)
+    or $t4, $t1, $t2
+    beqz $t4, ghost_erase_done
     
-    # Erase left half
-    lw $t3, ADDR_DSPL
+    # Erase both halves
     add $t4, $t3, $t1
     sw $t0, 0($t4)
     
-    # Erase right half
     add $t4, $t3, $t2
     sw $t0, 0($t4)
     
 ghost_erase_done:
     jr $ra  # Return to caller
-
-
-
-
-
-
+    
+    
+    
+    
 ##############################################################################
 # Function: draw_text_array - Generic function to draw any text array
 #
@@ -1113,9 +1101,7 @@ draw_text_array:
     move $s3, $a3              # Width
     
     lw $t0, 20($sp)           	# Load height parameter from stack
-    
     lw $t2, 24($sp)           	# Load color parameter from stack
-    
     lw $t1, ADDR_DSPL         	# Load display address
     
     # Loop through rows
@@ -1186,7 +1172,7 @@ update_pause_display:
     
     # Setup parameters for text display
     la $a0, PAUSE_ARRAY     # Address of the array
-    li $a1, 5               # Start row
+    li $a1, 1               # Start row
     li $a2, 28              # Start column (center screen)
     li $a3, 3               # Width of the array (columns)
     li $t1, 3               # Height of the array (rows)
@@ -1254,6 +1240,55 @@ restart_game: # initialize new game
     j main
 
 ##############################################################################
+# Function: draw_game_over - Displays game over message using arrays
+##############################################################################
+draw_game_over:
+    # Save registers
+    addi $sp, $sp, -4
+    sw $ra, 0($sp)
+    
+    lw $t9, color_red	    # Load red color for text
+    lw $t1, color_green 
+    
+    # Draw "GAME OVER" array at row 8, column 22
+    la $a0, GAME_OVER_ARRAY    # Address of the array
+    li $a1, 9                  # Start row
+    li $a2, 6                  # Start column
+    li $a3, 20                 # Width of the array (columns)
+    li $t0, 11                 # Height of the array (rows)
+    
+    # Push additional parameters on stack (height and color)
+    addi $sp, $sp, -8
+    sw $t0, 0($sp)             # Height
+    sw $t9, 4($sp)             # Color (white)
+    
+    jal draw_text_array
+    
+    addi $sp, $sp, 8	    # Pop the pushed parameters
+    
+    # Draw "PRESS R" array at row 24, column 26
+    la $a0, PRESS_R_ARRAY      # Address of the array
+    li $a1, 24                 # Start row
+    li $a2, 12                 # Start column
+    li $a3, 7                  # Width of the array (columns)
+    li $t0, 5                  # Height of the array (rows)
+    
+    # Push additional parameters on stack (height and color)
+    addi $sp, $sp, -8
+    sw $t0, 0($sp)             # Height
+    sw $t1, 4($sp)             # Color (white)
+    
+    jal draw_text_array
+    
+    # Pop the pushed parameters
+    addi $sp, $sp, 8
+    
+    # Restore return address
+    lw $ra, 0($sp)
+    addi $sp, $sp, 4
+    jr $ra
+   
+##############################################################################
 # Function: clear_screen - Clears the entire display
 ##############################################################################
 clear_screen:
@@ -1278,57 +1313,7 @@ clear_loop:
     lw $ra, 0($sp)
     addi $sp, $sp, 4
     jr $ra
-
-##############################################################################
-# Function: draw_game_over - Displays game over message using arrays
-##############################################################################
-draw_game_over:
-    # Save registers
-    addi $sp, $sp, -4
-    sw $ra, 0($sp)
     
-    # Load white color for text
-    lw $t9, color_red
-    
-    # Draw "GAME OVER" array at row 8, column 22
-    la $a0, GAME_OVER_ARRAY    # Address of the array
-    li $a1, 9                  # Start row
-    li $a2, 6                  # Start column
-    li $a3, 19                 # Width of the array (columns)
-    li $t0, 11                 # Height of the array (rows)
-    
-    # Push additional parameters on stack (height and color)
-    addi $sp, $sp, -8
-    sw $t0, 0($sp)             # Height
-    sw $t9, 4($sp)             # Color (white)
-    
-    jal draw_text_array
-    
-    addi $sp, $sp, 8	    # Pop the pushed parameters
-    
-    # Draw "PRESS R" array at row 24, column 26
-    la $a0, PRESS_R_ARRAY      # Address of the array
-    li $a1, 24                 # Start row
-    li $a2, 12                 # Start column
-    li $a3, 7                  # Width of the array (columns)
-    li $t0, 5                  # Height of the array (rows)
-    
-    # Push additional parameters on stack (height and color)
-    addi $sp, $sp, -8
-    sw $t0, 0($sp)             # Height
-    sw $t9, 4($sp)             # Color (white)
-    
-    jal draw_text_array
-    
-    # Pop the pushed parameters
-    addi $sp, $sp, 8
-    
-    # Restore return address
-    lw $ra, 0($sp)
-    addi $sp, $sp, 4
-    jr $ra
-   
-
 ##############################################################################
 # Function: draw_box (Medicine Bottle)
 ##############################################################################
