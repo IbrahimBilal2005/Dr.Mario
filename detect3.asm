@@ -102,9 +102,19 @@ main:
     jal draw_box 			# Step 1: Draw the medicine bottle (Only Once)
     jal generate_capsule_colors	# Step 2: Generate capsule colors
 
-    # Step 3: Draw Capsule
-    li $a0, 552  		# First half position
-    li $a1, 680  		# Second half position
+    # Reset capsule positions to initial values
+    li $t0, 552
+    sw $t0, capsule_left_pos
+    li $t0, 680
+    sw $t0, capsule_right_pos
+    
+    # Reset ghost positions
+    li $t0, 0
+    sw $t0, ghost_left_pos
+    sw $t0, ghost_right_pos
+    
+    sw $zero, gravity_counter	    # Reset gravity counter
+    
     jal draw_capsule  		# Draw capsule
 
 game_loop:
@@ -185,7 +195,6 @@ skip_gravity:
     	jal update_pause_display	# Draw or erase "PAUSED" text based on current state
     	j game_loop		       	# Return to game loop
 
-
 ##############################################################################
 # Function: draw_text_array - Generic function to draw any text array
 #
@@ -212,14 +221,11 @@ draw_text_array:
     move $s2, $a2              # Start column
     move $s3, $a3              # Width
     
-    # Load height parameter from stack
-    lw $t0, 20($sp)            # Height
+    lw $t0, 20($sp)           	# Load height parameter from stack
     
-    # Load color parameter from stack
-    lw $t2, 24($sp)            # Color to use (new parameter)
+    lw $t2, 24($sp)           	# Load color parameter from stack
     
-    # Load display address
-    lw $t1, ADDR_DSPL          # Display base address
+    lw $t1, ADDR_DSPL         	# Load display address
     
     # Loop through rows
     li $t3, 0                  # Current row
@@ -237,11 +243,9 @@ draw_array_col_loop:
     sll $t5, $t5, 2            # * 4 (word size)
     add $t5, $t5, $s0          # + array base address
     
-    # Load the value from the array
-    lw $t6, 0($t5)
+    lw $t6, 0($t5)	   	# Load the value from the array
     
-    # If value is -1, draw a pixel
-    beq $t6, $zero, draw_array_skip_pixel
+    beq $t6, $zero, draw_array_skip_pixel	    # If value is -1, draw a pixel
     
     # Calculate display position: (start_row + row) * 128 + (start_col + col) * 4
     add $t7, $s1, $t3          # start_row + row
@@ -333,8 +337,7 @@ game_over:
     addi $sp, $sp, -4
     sw $ra, 0($sp)
     
-    # Clear the screen
-    jal clear_screen
+    jal clear_screen	    # Clear the screen
     
     # Draw game over message
     jal draw_game_over
@@ -342,8 +345,22 @@ game_over:
     # Restore return address
     lw $ra, 0($sp)
     addi $sp, $sp, 4
+
+game_over_loop:
+    # Check for keyboard input
+    lw $t0, ADDR_KBRD         # Load keyboard address
+    lw $t1, 0($t0)            # Read first word (1 if key is pressed)
+    bne $t1, 1, game_over_loop # If no key is pressed, continue loop
     
-    j game_over_loop   # Enter game over loop
+    lw $t1, 4($t0)            # Load the actual key pressed
+    beq $t1, 0x72, restart_game # 'r' - Restart
+    
+    j game_over_loop	    # Any other key just continues the loop
+
+restart_game: # initialize new game
+    sw $zero, game_over_flag	# Reset game over flag
+    jal clear_screen 		#clear screen
+    j main
 
 ##############################################################################
 # Function: clear_screen - Clears the entire display
@@ -396,8 +413,7 @@ draw_game_over:
     
     jal draw_text_array
     
-    # Pop the pushed parameters
-    addi $sp, $sp, 8
+    addi $sp, $sp, 8	    # Pop the pushed parameters
     
     # Draw "PRESS R" array at row 24, column 26
     la $a0, PRESS_R_ARRAY      # Address of the array
@@ -420,63 +436,7 @@ draw_game_over:
     lw $ra, 0($sp)
     addi $sp, $sp, 4
     jr $ra
-
-##############################################################################
-# Game Over Loop - Waits for restart input
-##############################################################################
-game_over_loop:
-    # Check for keyboard input
-    lw $t0, ADDR_KBRD         # Load keyboard address
-    lw $t1, 0($t0)            # Read first word (1 if key is pressed)
-    bne $t1, 1, game_over_loop # If no key is pressed, continue loop
-    
-    lw $t1, 4($t0)            # Load the actual key pressed
-    beq $t1, 0x72, restart_game # 'r' - Restart
-    
-    # Any other key just continues the loop
-    j game_over_loop
-
-##############################################################################
-# Function: restart_game - Resets the game to initial state
-##############################################################################
-restart_game:
-    # Reset game over flag
-    sw $zero, game_over_flag
-    
-    # Save return address
-    addi $sp, $sp, -4
-    sw $ra, 0($sp)
-    
-    # Clear the screen
-    jal clear_screen
-    
-    # Reset capsule positions to initial values
-    li $t0, 552
-    sw $t0, capsule_left_pos
-    li $t0, 680
-    sw $t0, capsule_right_pos
-    
-    # Reset ghost positions
-    li $t0, 0
-    sw $t0, ghost_left_pos
-    sw $t0, ghost_right_pos
-    
-    # Reset gravity counter
-    sw $zero, gravity_counter
-    
-    # Redraw the medicine bottle
-    jal draw_box
-    
-    # Generate new capsule colors and draw initial capsule
-    jal generate_capsule_colors
-    jal draw_capsule
-    
-    # Restore return address
-    lw $ra, 0($sp)
-    addi $sp, $sp, 4
-    
-    # Return to main game loop
-    j game_loop
+   
 
 ##############################################################################
 # Function: draw_box (Medicine Bottle)
