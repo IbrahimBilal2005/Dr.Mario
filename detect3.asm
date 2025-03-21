@@ -28,7 +28,45 @@ color_black: .word 0x000000
 color_red:    .word 0xFF0000  # Red
 color_blue:   .word 0x0000FF  # Blue
 color_yellow: .word 0xFFFF00  # Yellow
+color_white: .word 0xFFFFFF	# White 
 
+game_over_flag: .word 0       # 0 = game running, 1 = game over
+
+GAME_OVER_ARRAY:
+    .word
+    # "GAME OVER" represented as a 19x11 grid (0 = blank, -1 = pixel)
+    0, -1, -1, 0, 0, 0, 0, -1, 0, 0, -1, 0, 0, 0, -1, 0, 0, -1, -1,  # G A M E
+    -1, 0, 0, 0, 0, 0, -1, 0, -1, 0, -1, -1, 0, -1, -1, 0, -1, 0, 0,
+    -1, 0, -1, -1, -1, 0, -1, -1, -1, 0, -1, -1, -1, -1, -1, 0, -1, -1, 0,
+    -1, 0, 0, -1, 0, 0, -1, 0, -1, 0, -1, 0, -1, 0, -1, 0, -1, 0, 0,
+    0, -1, -1, 0, 0, 0, -1, 0, -1, 0, -1, 0, 0, 0, -1, 0, 0, -1, -1,
+    
+    # Empty row between "GAME" and "OVER"
+    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+    
+    # "OVER" as a 19x5 grid
+    0, -1, 0, 0, -1, 0, 0, 0, -1, 0, 0, -1, -1, 0, -1, -1, 0, 0, 0,  # O V E R
+    -1, 0, -1, 0, -1, -1, 0, -1, -1, 0, -1, 0, 0, 0, -1, 0, -1, 0, 0, 
+    -1, 0, -1, 0, 0, -1, 0, -1, 0, 0, -1, -1, 0, 0, -1, -1, 0, 0, 0,
+    -1, 0, -1, 0, 0, -1, -1, -1, 0, 0, -1, 0, 0, 0, -1, 0, -1, 0, 0, 
+    0, -1, 0, 0, 0, 0, -1, 0, 0, 0, 0, -1, -1, 0, -1, 0, 0, -1, 0
+    
+PRESS_R_ARRAY:
+    .word
+    # "RESTART" represented as a 7x5 grid
+    -1, 0, -1, -1, 0, 0, -1, 
+    -1, 0, -1, 0, -1, 0, -1, 
+     0, 0, -1, -1, 0, 0, 0, 
+     0, 0, -1, 0, -1, 0, 0, 
+     0, 0, -1, 0, 0, -1, 0
+     
+PAUSE_ARRAY:
+    .word
+    # "II" represented as a 3x4 grid (0 = blank, -1 = pixel)
+    -1, 0, -1, 
+    -1, 0, -1, 
+    -1, 0, -1, 
+    
 ##############################################################################
 # Mutable Data
 ##############################################################################
@@ -46,6 +84,8 @@ gravity_speed:   .word 50    	# Apply gravity every N frames
 ghost_color: .word 0xb0aeae   	# Gray color for ghost capsule
 ghost_left_pos:  .word 0      	# Position of left ghost capsule
 ghost_right_pos: .word 0      	# Position of right ghost capsule
+
+is_paused:      .word 0       # 0 = not paused, 1 = paused
 
 ##############################################################################
 # Code
@@ -72,6 +112,10 @@ game_loop:
     lw $a0, move_delay
     syscall
     
+    # Check if game is paused, if so skip all game updates
+    lw $t0, is_paused
+    bnez $t0, check_unpause
+    
     lw $t0, gravity_counter	# Increment gravity counter
     addi $t0, $t0, 1
     sw $t0, gravity_counter
@@ -89,11 +133,28 @@ skip_gravity:
     bne $t1, 1, game_loop  	# If no key is pressed, continue loop
     lw $t1, 4($t0)      	# Load the actual key pressed
 
+    beq $t1, 0x70, initiate_pause # 'p' - Toggle pause state
+    
+    # If game is paused, ignore all other inputs
+    lw $t0, is_paused
+    bnez $t0, game_loop
+    
     beq $t1, 0x77, initiate_rotate  	# 'w' - Rotate
     beq $t1, 0x61, initiate_left      	# 'a' - Move Left
     beq $t1, 0x64, initiate_right     	# 'd' - Move Right
     beq $t1, 0x73, initiate_down_fast 	# 's' - Drop Fast
+    beq $t1, 0x71, game_over    	# 'q' - Quit/Game Over
+    beq $t1, 0x72, restart_game 	# 'r' - Restart
     j game_loop 			# Invalid key input 
+    
+    check_unpause:	    # When paused, only check for unpause key
+    lw $t0, ADDR_KBRD         # Load keyboard address
+    lw $t1, 0($t0)            # Read first word (1 if key is pressed)
+    bne $t1, 1, game_loop     # If no key is pressed, continue loop
+    lw $t1, 4($t0)            # Load the actual key pressed
+    
+    beq $t1, 0x70, initiate_pause 	# 'p' - Toggle pause state
+    j game_loop               		# Any other key, continue waiting
 
     initiate_rotate:
         jal erase_ghost_capsule	# Erase ghost capsule first
@@ -119,6 +180,303 @@ skip_gravity:
         jal move_down_fast        	# Determine updated location based on fast down
         jal draw_capsule     	  	# Redraw the capsule based on updated positions
         j game_loop     	  	# Continue with the game loop
+    initiate_pause:
+    	jal toggle_pause_state		# Toggle pause state
+    	jal update_pause_display	# Draw or erase "PAUSED" text based on current state
+    	j game_loop		       	# Return to game loop
+
+
+##############################################################################
+# Function: draw_text_array - Generic function to draw any text array
+#
+# Parameters:
+#   $a0 - Address of the array
+#   $a1 - Start row
+#   $a2 - Start column
+#   $a3 - Width of the array (columns)
+#   Stack+0 - Height of the array (rows)
+#   Stack+4 - Color to use for drawing
+##############################################################################
+draw_text_array:
+    # Save registers
+    addi $sp, $sp, -20
+    sw $ra, 0($sp)
+    sw $s0, 4($sp)
+    sw $s1, 8($sp)
+    sw $s2, 12($sp)
+    sw $s3, 16($sp)
+    
+    # Load parameters
+    move $s0, $a0              # Array address
+    move $s1, $a1              # Start row
+    move $s2, $a2              # Start column
+    move $s3, $a3              # Width
+    
+    # Load height parameter from stack
+    lw $t0, 20($sp)            # Height
+    
+    # Load color parameter from stack
+    lw $t2, 24($sp)            # Color to use (new parameter)
+    
+    # Load display address
+    lw $t1, ADDR_DSPL          # Display base address
+    
+    # Loop through rows
+    li $t3, 0                  # Current row
+draw_array_row_loop:
+    beq $t3, $t0, draw_array_done   # If row == height, we're done
+    
+    # Loop through columns in this row
+    li $t4, 0                  # Current column
+draw_array_col_loop:
+    beq $t4, $s3, draw_array_next_row   # If col == width, go to next row
+    
+    # Calculate array index: row * width + column
+    mul $t5, $t3, $s3          # row * width
+    add $t5, $t5, $t4          # + column
+    sll $t5, $t5, 2            # * 4 (word size)
+    add $t5, $t5, $s0          # + array base address
+    
+    # Load the value from the array
+    lw $t6, 0($t5)
+    
+    # If value is -1, draw a pixel
+    beq $t6, $zero, draw_array_skip_pixel
+    
+    # Calculate display position: (start_row + row) * 128 + (start_col + col) * 4
+    add $t7, $s1, $t3          # start_row + row
+    sll $t7, $t7, 7            # * 128 (row width in bytes)
+    add $t8, $s2, $t4          # start_col + col
+    sll $t8, $t8, 2            # * 4 (bytes per pixel)
+    add $t7, $t7, $t8          # Combined offset
+    
+    # Draw the pixel with the specified color
+    add $t7, $t7, $t1          # Add display base address
+    sw $t2, 0($t7)             # Set pixel to specified color
+    
+draw_array_skip_pixel:
+    addi $t4, $t4, 1           # Next column
+    j draw_array_col_loop
+    
+draw_array_next_row:
+    addi $t3, $t3, 1           # Next row
+    j draw_array_row_loop
+    
+draw_array_done:
+    # Restore registers
+    lw $ra, 0($sp)
+    lw $s0, 4($sp)
+    lw $s1, 8($sp)
+    lw $s2, 12($sp)
+    lw $s3, 16($sp)
+    addi $sp, $sp, 20
+    jr $ra
+
+##############################################################################
+# Function: toggle_pause_state
+##############################################################################
+toggle_pause_state:
+    lw $t0, is_paused
+    xori $t0, $t0, 1        # Toggle between 0 and 1
+    sw $t0, is_paused
+    jr $ra
+
+##############################################################################
+# Function: update_pause_display: draw or erase the pause indicator 
+##############################################################################
+update_pause_display:
+    # Save return address
+    addi $sp, $sp, -4
+    sw $ra, 0($sp)
+    
+    # Setup parameters for text display
+    la $a0, PAUSE_ARRAY     # Address of the array
+    li $a1, 5               # Start row
+    li $a2, 28              # Start column (center screen)
+    li $a3, 3               # Width of the array (columns)
+    li $t1, 3               # Height of the array (rows)
+    
+    # Determine color based on pause state
+    lw $t0, is_paused
+    beqz $t0, pause_erase   # If paused=0 (unpaused), use black
+    lw $t2, color_white     # Use white for pause text
+    j pause_draw
+    
+pause_erase:
+    lw $t2, color_black     # Use black to erase
+    
+pause_draw:
+    # Push additional parameters on stack (height and color)
+    addi $sp, $sp, -8
+    sw $t1, 0($sp)          # Height
+    sw $t2, 4($sp)          # Color
+    
+    jal draw_text_array
+    
+    # Pop the pushed parameters
+    addi $sp, $sp, 8
+    
+    # Restore return address and return
+    lw $ra, 0($sp)
+    addi $sp, $sp, 4
+    jr $ra
+        
+##############################################################################
+# Function: game_over - Handles game over state
+##############################################################################
+game_over:
+    # Set game over flag
+    li $t0, 1
+    sw $t0, game_over_flag
+    
+    # Save return address
+    addi $sp, $sp, -4
+    sw $ra, 0($sp)
+    
+    # Clear the screen
+    jal clear_screen
+    
+    # Draw game over message
+    jal draw_game_over
+    
+    # Restore return address
+    lw $ra, 0($sp)
+    addi $sp, $sp, 4
+    
+    j game_over_loop   # Enter game over loop
+
+##############################################################################
+# Function: clear_screen - Clears the entire display
+##############################################################################
+clear_screen:
+    # Save return address
+    addi $sp, $sp, -4
+    sw $ra, 0($sp)
+    
+    lw $t0, ADDR_DSPL      # Load display base address
+    lw $t1, color_black    # Load black color
+    
+    li $t2, 0              # Start from the first pixel
+    li $t3, 4096           # 64x64 pixels = 4096 pixels
+    
+clear_loop:
+    add $t4, $t0, $t2      # Calculate pixel address
+    sw $t1, 0($t4)         # Set pixel to black
+    
+    addi $t2, $t2, 4       # Move to next pixel
+    blt $t2, $t3, clear_loop # Continue until all pixels are cleared
+    
+    # Restore return address
+    lw $ra, 0($sp)
+    addi $sp, $sp, 4
+    jr $ra
+
+##############################################################################
+# Function: draw_game_over - Displays game over message using arrays
+##############################################################################
+draw_game_over:
+    # Save registers
+    addi $sp, $sp, -4
+    sw $ra, 0($sp)
+    
+    # Load white color for text
+    lw $t9, color_red
+    
+    # Draw "GAME OVER" array at row 8, column 22
+    la $a0, GAME_OVER_ARRAY    # Address of the array
+    li $a1, 9                  # Start row
+    li $a2, 6                  # Start column
+    li $a3, 19                 # Width of the array (columns)
+    li $t0, 11                 # Height of the array (rows)
+    
+    # Push additional parameters on stack (height and color)
+    addi $sp, $sp, -8
+    sw $t0, 0($sp)             # Height
+    sw $t9, 4($sp)             # Color (white)
+    
+    jal draw_text_array
+    
+    # Pop the pushed parameters
+    addi $sp, $sp, 8
+    
+    # Draw "PRESS R" array at row 24, column 26
+    la $a0, PRESS_R_ARRAY      # Address of the array
+    li $a1, 24                 # Start row
+    li $a2, 12                 # Start column
+    li $a3, 7                  # Width of the array (columns)
+    li $t0, 5                  # Height of the array (rows)
+    
+    # Push additional parameters on stack (height and color)
+    addi $sp, $sp, -8
+    sw $t0, 0($sp)             # Height
+    sw $t9, 4($sp)             # Color (white)
+    
+    jal draw_text_array
+    
+    # Pop the pushed parameters
+    addi $sp, $sp, 8
+    
+    # Restore return address
+    lw $ra, 0($sp)
+    addi $sp, $sp, 4
+    jr $ra
+
+##############################################################################
+# Game Over Loop - Waits for restart input
+##############################################################################
+game_over_loop:
+    # Check for keyboard input
+    lw $t0, ADDR_KBRD         # Load keyboard address
+    lw $t1, 0($t0)            # Read first word (1 if key is pressed)
+    bne $t1, 1, game_over_loop # If no key is pressed, continue loop
+    
+    lw $t1, 4($t0)            # Load the actual key pressed
+    beq $t1, 0x72, restart_game # 'r' - Restart
+    
+    # Any other key just continues the loop
+    j game_over_loop
+
+##############################################################################
+# Function: restart_game - Resets the game to initial state
+##############################################################################
+restart_game:
+    # Reset game over flag
+    sw $zero, game_over_flag
+    
+    # Save return address
+    addi $sp, $sp, -4
+    sw $ra, 0($sp)
+    
+    # Clear the screen
+    jal clear_screen
+    
+    # Reset capsule positions to initial values
+    li $t0, 552
+    sw $t0, capsule_left_pos
+    li $t0, 680
+    sw $t0, capsule_right_pos
+    
+    # Reset ghost positions
+    li $t0, 0
+    sw $t0, ghost_left_pos
+    sw $t0, ghost_right_pos
+    
+    # Reset gravity counter
+    sw $zero, gravity_counter
+    
+    # Redraw the medicine bottle
+    jal draw_box
+    
+    # Generate new capsule colors and draw initial capsule
+    jal generate_capsule_colors
+    jal draw_capsule
+    
+    # Restore return address
+    lw $ra, 0($sp)
+    addi $sp, $sp, 4
+    
+    # Return to main game loop
+    j game_loop
 
 ##############################################################################
 # Function: draw_box (Medicine Bottle)
