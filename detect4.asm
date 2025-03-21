@@ -784,7 +784,8 @@ clear_horiz_loop:
     add $s5, $t0, $s4       # actual address
     sw $zero, 0($s5)        # Clear the matching pixel
     
-    # Mark all pixels above as unsupported
+    # Create a special tag to force all pixel above to fall
+    # by physically clearing them and creating "ghost pixels" below
     move $s6, $s4           # Save current position
     li $s7, 1               # Counter for rows above
     
@@ -796,9 +797,16 @@ mark_above_loop:
     lw $t6, gray_color
     beq $t7, $t6, next_mark_above # Skip if wall
     
-    # Clear the "supported" bit
-    andi $t7, $t7, 0x7FFFFFFF
-    sw $t7, 0($s5)          # Save back the unsupported pixel
+    # Store the pixel color temporarily
+    move $t3, $t7
+    
+    # Clear the original pixel
+    sw $zero, 0($s5)
+    
+    # Create a new "ghost" pixel just below with the same color but cleared support bit
+    add $s5, $s5, 128        # Move down one row
+    andi $t3, $t3, 0x7FFFFFFF # Clear support bit
+    sw $t3, 0($s5)           # Place unsupported ghost pixel
     
 next_mark_above:
     addi $s7, $s7, 1
@@ -868,11 +876,8 @@ apply_gravity_to_floating_capsules:
     sw $s2, 12($sp)
     sw $s3, 16($sp)
 
-    # Step 1: Mark all supported capsules
-    jal mark_supported_capsules
-    
-    # Step 2: Make all unsupported capsules fall
-    jal drop_unsupported_capsules
+    jal mark_supported_capsules	    # Step 1: Mark all supported capsules
+    jal drop_unsupported_capsules	    # Step 2: Make all unsupported capsules fall
     
     # Restore registers and return
     lw $ra, 0($sp)
@@ -903,8 +908,7 @@ mark_bottom_row:
     add $t4, $t0, $t3        # Pixel address
     lw $t5, 0($t4)           # Color at (row, col)
     
-    # Skip if black or already marked
-    beqz $t5, next_bottom_col
+    beqz $t5, next_bottom_col	    # Skip if black or already marked
     
     # Skip if it's a wall (gray color)
     lw $t6, gray_color
