@@ -8,8 +8,8 @@
 # creation, and will indicate otherwise when it is not.
 #
 ######################## Bitmap Display Configuration ########################
-# - Unit width in pixels:       2
-# - Unit height in pixels:      2
+# - Unit width in pixels:       2 
+# - Unit height in pixels:      2 
 # - Display width in pixels:    64
 # - Display height in pixels:   64
 # - Base Address for Display:   0x10008000 ($gp)
@@ -28,6 +28,18 @@ color_black: .word 0x000000
 color_red:    .word 0xFF0000  # Red
 color_blue:   .word 0x0000FF  # Blue
 color_yellow: .word 0xFFFF00  # Yellow
+color_white: .word 0xFFFFFF	# White 
+
+pause_pixels:    # Array of pixel offsets for "II" pause indicator
+    .word 0      # First line, pixel 1 (top-right corner)
+    .word 128    # First line, pixel 2 (1 row down)
+    .word 256   # First line, pixel 3 (2 rows down)
+    .word 384   # First line, pixel 4 (3 rows down)
+    .word -8     # Second line, pixel 1 (2 pixels to the left)
+    .word 120    # Second line, pixel 2 (512-8)
+    .word 248   # Second line, pixel 3 (1024-8)
+    .word 376   # Second line, pixel 4 (1536-8)
+    .word -1     # End marker
 
 ##############################################################################
 # Mutable Data
@@ -46,6 +58,9 @@ gravity_speed:   .word 60    	# Apply gravity every N frames
 ghost_color: .word 0x808081   	# Gray color for ghost capsule
 ghost_left_pos:  .word 0      	# Position of left ghost capsule
 ghost_right_pos: .word 0      	# Position of right ghost capsule
+
+is_paused:      .word 0       # 0 = not paused, 1 = paused
+pause_text:     .asciiz "PAUSED"
 
 ##############################################################################
 # Code
@@ -72,6 +87,10 @@ game_loop:
     lw $a0, move_delay
     syscall
     
+    # Check if game is paused, if so skip all game updates
+    lw $t0, is_paused
+    bnez $t0, check_unpause
+    
     lw $t0, gravity_counter	# Increment gravity counter
     addi $t0, $t0, 1
     sw $t0, gravity_counter
@@ -83,18 +102,33 @@ game_loop:
 skip_gravity:
 
     jal draw_ghost_capsule    	# Draw ghost capsule
-    
+   
     lw $t0, ADDR_KBRD   	# Load keyboard address
     lw $t1, 0($t0)      	# Read first word (1 if key is pressed)
     bne $t1, 1, game_loop  	# If no key is pressed, continue loop
     lw $t1, 4($t0)      	# Load the actual key pressed
-
+	 
+    beq $t1, 0x70, initiate_pause # 'p' - Toggle pause state
+    
+    # If game is paused, ignore all other inputs
+    lw $t0, is_paused
+    bnez $t0, game_loop
+    
     beq $t1, 0x77, initiate_rotate  	# 'w' - Rotate
     beq $t1, 0x61, initiate_left      	# 'a' - Move Left
     beq $t1, 0x64, initiate_right     	# 'd' - Move Right
     beq $t1, 0x73, initiate_down_fast 	# 's' - Drop Fast
     j game_loop 			# Invalid key input 
-
+    
+    check_unpause:	    # When paused, only check for unpause key
+    lw $t0, ADDR_KBRD         # Load keyboard address
+    lw $t1, 0($t0)            # Read first word (1 if key is pressed)
+    bne $t1, 1, game_loop     # If no key is pressed, continue loop
+    lw $t1, 4($t0)            # Load the actual key pressed
+    
+    beq $t1, 0x70, initiate_pause 	# 'p' - Toggle pause state
+    j game_loop               		# Any other key, continue waiting
+	
     initiate_rotate:
         jal erase_ghost_capsule	# Erase ghost capsule first
         jal erase_capsule 	  	# Erase the current capsule
@@ -119,7 +153,96 @@ skip_gravity:
         jal move_down_fast        	# Determine updated location based on fast down
         jal draw_capsule     	  	# Redraw the capsule based on updated positions
         j game_loop     	  	# Continue with the game loop
+    initiate_pause:
+    	lw $t0, is_paused
+    	xori $t0, $t0, 1        	# Toggle between 0 and 1
+    	sw $t0, is_paused
+    
+    # Draw or erase pause indicator based on new state
+    beqz $t0, erase_pause
+	jal draw_pause_indicator
+	j game_loop
 
+    erase_pause:
+	jal erase_pause_indicator
+	j game_loop
+
+##############################################################################
+# Function: draw_pause_indicator - Draws "II" on corner of screen
+##############################################################################
+draw_pause_indicator:
+    addi $sp, $sp, -4
+    sw $ra, 0($sp)
+    
+    lw $t0, ADDR_DSPL         # Load display base address
+    lw $t1, color_white         # Use red color for pause text
+    
+    # Calculate base position (true top right corner)
+    li $t2, 126               # X position (rightmost column of 128-pixel wide display)
+    li $t3, 0                 # Y position (true top row)
+    
+    # Calculate base address for the pause indicator
+    sll $t4, $t3, 7           # t4 = y * 128 (rows are 128 pixels wide)
+    add $t4, $t4, $t2         # t4 = y * 128 + x
+    sll $t4, $t4, 2           # t4 = (y * 128 + x) * 4 (bytes per pixel)
+    add $t5, $t0, $t4         # Base address = display base + offset
+    
+    # Load array of pixel offsets
+    la $t6, pause_pixels      # Load address of pixel offsets array
+    
+draw_loop:
+    lw $t7, 0($t6)            # Load pixel offset
+    beq $t7, -1, draw_done    # If end marker (-1), we're done
+    
+    add $t8, $t5, $t7         # Calculate actual pixel address
+    sw $t1, 0($t8)            # Draw the pixel
+    
+    addi $t6, $t6, 4          # Move to next offset in array
+    j draw_loop               # Continue loop
+    
+draw_done:
+    lw $ra, 0($sp)
+    addi $sp, $sp, 4
+    jr $ra
+
+##############################################################################
+# Function: erase_pause_indicator - Erases the pause indicator
+##############################################################################
+erase_pause_indicator:
+    addi $sp, $sp, -4
+    sw $ra, 0($sp)
+    
+    lw $t0, ADDR_DSPL         # Load display base address
+    lw $t1, color_black       # Use black color to erase
+    
+    # Calculate base position (true top right corner)
+    li $t2, 126               # X position (rightmost column of 128-pixel wide display)
+    li $t3, 0                 # Y position (true top row)
+    
+    # Calculate base address for the pause indicator
+    sll $t4, $t3, 7           # t4 = y * 128 (rows are 128 pixels wide)
+    add $t4, $t4, $t2         # t4 = y * 128 + x
+    sll $t4, $t4, 2           # t4 = (y * 128 + x) * 4 (bytes per pixel)
+    add $t5, $t0, $t4         # Base address = display base + offset
+    
+    # Load array of pixel offsets
+    la $t6, pause_pixels      # Load address of pixel offsets array
+    
+erase_loop:
+    lw $t7, 0($t6)            # Load pixel offset
+    beq $t7, -1, erase_done   # If end marker (-1), we're done
+    
+    add $t8, $t5, $t7         # Calculate actual pixel address
+    sw $t1, 0($t8)            # Erase the pixel
+    
+    addi $t6, $t6, 4          # Move to next offset in array
+    j erase_loop              # Continue loop
+    
+erase_done:
+    lw $ra, 0($sp)
+    addi $sp, $sp, 4
+    jr $ra
+    
 ##############################################################################
 # Function: draw_box (Medicine Bottle)
 ##############################################################################
