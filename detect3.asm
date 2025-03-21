@@ -196,6 +196,897 @@ skip_gravity:
     	j game_loop		       	# Return to game loop
 
 ##############################################################################
+# Function to return random color
+##############################################################################
+generate_random_color:
+    li $v0, 42                      # syscall 42: generate random number
+    li $a0, 0                       # Random number generator ID 0
+    li $a1, 3                       # Upper bound 3 (exclusive), so 0-2 inclusive
+    syscall
+    
+    beq $a0, 0, return_red          # Check if the random number is 0
+    beq $a0, 1, return_green        # Check if the random number is 1
+    beq $a0, 2, return_blue         # Check if the random number is 2
+    j colour_selection_end
+
+return_red:
+    lw $v0, color_red              # Return red color
+    j colour_selection_end
+return_green:
+    lw $v0, color_yellow           # Return yellow color
+    j colour_selection_end
+return_blue:
+    lw $v0, color_blue             # Return blue color
+    j colour_selection_end
+colour_selection_end:
+    jr $ra
+
+##############################################################################
+# Function: generate_capsule_colors
+# Generates random colors for both halves of the capsule using syscall
+# Returns: None (updates capsule_left and capsule_right in memory)
+##############################################################################
+generate_capsule_colors:
+    addi $sp, $sp, -4       # Save return address
+    sw $ra, 0($sp)
+    
+    jal generate_random_color       # Generate first random color
+    move $t2, $v0                   # $t2 = first color
+    
+    jal generate_random_color       # Generate second random color
+    move $t3, $v0                   # $t3 = second color
+    
+    # Set left color
+    move $a1, $t2                   # $a1 = first random color
+    sw $a1, capsule_left            # Set left color
+    
+    # Set right color
+    move $a1, $t3                   # $a1 = second random color
+    sw $a1, capsule_right           # Set right color
+    
+    lw $ra, 0($sp)                  # Load return address
+    addi $sp, $sp, 4               
+    jr $ra                          # Return
+    
+##############################################################################
+# Function: draw_capsule (Place Random Capsule in Memory)
+##############################################################################
+draw_capsule:
+    lw $t0, ADDR_DSPL  # Load display base address
+    lw $t5, capsule_left # Load left half color
+    lw $t6, capsule_right # Load right half color
+    lw $a0, capsule_left_pos
+    lw $a1, capsule_right_pos
+    
+    # Compute the address for the first half (552)
+    add $t7, $t0, $a0  # t7 = base + 552
+    sw $t5, 0($t7)  # Store first half color
+
+    # Compute the address for the second half (680)
+    add $t8, $t0, $a1  # t8 = base + 680
+    sw $t6, 0($t8)  # Store second half color
+    jr $ra  # Return
+    
+##############################################################################
+# Function: erase_capsule (Place Random Capsule in Memory)
+##############################################################################
+erase_capsule:
+    lw $t0, color_black   # Load lack color (0x000000)
+
+    # Load the capsule's current positions
+    lw $t1, capsule_left_pos   # $t1 = left capsule position
+    lw $t2, capsule_right_pos  # $t2 = right capsule position
+
+    lw $t3, ADDR_DSPL  
+    add $t4, $t3, $t1  	# Calculate current position
+    sw $t0, 0($t4)  		# Set value to black
+    add $t5, $t3, $t2  
+    sw $t0, 0($t5) 
+    jr $ra  			# Return to caller
+   
+##############################################################################
+# Apply Gravity Function 
+##############################################################################
+apply_gravity:
+    # Save return address
+    addi $sp, $sp, -4
+    sw $ra, 0($sp)
+    
+    # Apply gravity (former move_down code)
+    jal erase_capsule  # Erase current position
+    jal move_down      # Calculate new position
+    jal draw_capsule   # Draw at new position
+    
+    # Restore return address
+    lw $ra, 0($sp)
+    addi $sp, $sp, 4
+    jr $ra
+
+##############################################################################
+# Function: move_down (Apply Gravity)
+##############################################################################
+move_down:
+    lw $t0, ADDR_DSPL        # Load display base address
+    lw $t5, capsule_left     # Left half color
+    lw $t6, capsule_right    # Right half color
+
+    lw $a0, capsule_left_pos    # Load current positions
+    lw $a1, capsule_right_pos
+
+    # Determine if the capsule is vertical or horizontal and which way
+    sub $t3, $a1, $a0       # Difference between positions
+
+    # Orientation checks
+    li $t4, 4
+    beq $t3, $t4, check_horizontal    # Right is to the right of left
+    li $t4, 128
+    beq $t3, $t4, check_vertical_down # Right is below left
+    li $t4, -4
+    beq $t3, $t4, check_horizontal    # Right is to the left of left
+    li $t4, -128
+    beq $t3, $t4, check_vertical_up   	# Right is above left
+    j stop_moving  		       	# Default case
+
+check_vertical_down:
+    # For vertical orientation with right below left
+    addi $t7, $a1, 128      # Position below right (bottom) half
+    add $t8, $t0, $t7
+    lw $t9, 0($t8)          # Load color of pixel below
+    beqz $t9, move_down_continue   # If black, move down
+    
+    # Check if it's a ghost capsule
+    lw $t4, ghost_color
+    beq $t9, $t4, move_down_continue  # If ghost color, move down
+    j stop_moving   # Otherwise, stop moving
+
+check_vertical_up:
+    # For vertical orientation with right above left
+    addi $t7, $a0, 128      # Position below left (bottom) half
+    add $t8, $t0, $t7
+    lw $t9, 0($t8)          # Load color of pixel below
+    beqz $t9, move_down_continue   # If black, move down
+    
+    # Check if it's a ghost capsule
+    lw $t4, ghost_color
+    beq $t9, $t4, move_down_continue  # If ghost color, move down
+    j stop_moving   # Otherwise, stop moving
+
+check_horizontal:
+    # For horizontal orientation, check below both pieces
+    addi $t7, $a0, 128      # Position below left half
+    add $t8, $t0, $t7
+    lw $t9, 0($t8)          # Load color of pixel below left
+    beqz $t9, check_horizontal_right   # If black, check right piece
+    
+    # Check if it's a ghost capsule
+    lw $t4, ghost_color
+    beq $t9, $t4, check_horizontal_right  # If ghost color, check right
+    j stop_moving   	# Otherwise, stop moving
+
+check_horizontal_right:
+    addi $t7, $a1, 128      # Position below right half
+    add $t8, $t0, $t7
+    lw $s1, 0($t8)          		# Load color of pixel below right
+    beqz $s1, move_down_continue   	# If black, move down
+    
+    # Check if it's a ghost capsule
+    lw $t4, ghost_color
+    beq $s1, $t4, move_down_continue  # If ghost color, move down
+    j stop_moving   			# Otherwise, stop moving
+
+move_down_continue:
+    # Clear previous position (set to background color)
+    add $t8, $t0, $a0
+    sw $zero, 0($t8)        # Clear left half
+
+    add $t9, $t0, $a1
+    sw $zero, 0($t9)        # Clear right half
+
+    addi $a0, $a0, 128	     # Move down by one row
+    addi $a1, $a1, 128
+
+    # Store updated position
+    sw $a0, capsule_left_pos
+    sw $a1, capsule_right_pos
+
+    jal draw_capsule	    # Draw capsule at new position
+    j game_loop            # Continue looping
+
+stop_moving:    
+    jal erase_ghost_capsule	# Erase ghost capsule when capsule stops
+    jal draw_capsule		# Draw the current capsule in its final position
+    
+    # Reset ghost positions
+    li $t0, 0
+    sw $t0, ghost_left_pos
+    sw $t0, ghost_right_pos
+    
+    jal check_for_matches
+    jal generate_new_capsule	    # Then generate a new capsule
+    j game_loop
+
+##############################################################################
+# Function: move_down_fast ('s' key to drop quickly)
+##############################################################################
+move_down_fast:
+    # Save return address to stack
+    addi $sp, $sp, -4   
+    sw $ra, 0($sp)
+    
+    # Load display address and current positions
+    lw $t5, ADDR_DSPL
+    lw $t0, capsule_left_pos
+    lw $t1, capsule_right_pos
+
+    # Determine orientation based on position difference
+    sub $t3, $t1, $t0           # t3 = right - left
+
+fast_drop_loop:
+    # Calculate positions one row down
+    addi $t6, $t0, 128   # Left position + 1 row
+    addi $t7, $t1, 128   # Right position + 1 row
+    
+    # Check if we've hit the bottom boundary
+    li $t2, 3464            # Bottom boundary
+    bge $t6, $t2, end_fast_drop
+    bge $t7, $t2, end_fast_drop
+    
+    # Determine which pixel(s) to check based on orientation
+    li $t4, 4                   # Horizontal (right to right of left)
+    beq $t3, $t4, check_horizontal_fast
+    
+    li $t4, 128                 # Vertical (right below left)
+    beq $t3, $t4, check_vertical_down_fast
+    
+    li $t4, -4                  # Horizontal (right to left of left)
+    beq $t3, $t4, check_horizontal_fast
+    
+    li $t4, -128                # Vertical (right above left)
+    beq $t3, $t4, check_vertical_up_fast
+    
+    j end_fast_drop	  # Default case - shouldn't happen
+
+check_horizontal_fast:	  # Check below both pieces
+    add $t8, $t5, $t6    # Address of pixel below left half
+    lw $t9, 0($t8)       # Load color at that position
+    bnez $t9, end_fast_drop  # If not black (0), stop
+
+    add $t8, $t5, $t7    # Address of pixel below right half
+    lw $t9, 0($t8)       # Load color at that position
+    bnez $t9, end_fast_drop  # If not black (0), stop
+    
+    j update_fast_drop_pos
+
+check_vertical_down_fast:    	# Only check below bottom piece (right)
+    add $t8, $t5, $t7    	# Address of pixel below bottom half
+    lw $t9, 0($t8)       	# Load color at that position
+    bnez $t9, end_fast_drop  	# If not black (0), stop
+    
+    j update_fast_drop_pos
+
+check_vertical_up_fast:  # Only check below bottom piece (left)
+    add $t8, $t5, $t6    # Address of pixel below bottom half
+    lw $t9, 0($t8)       # Load color at that position
+    bnez $t9, end_fast_drop  # If not black (0), stop
+    
+    j update_fast_drop_pos
+
+update_fast_drop_pos:	# Move capsule down one row
+    move $t0, $t6    	# Update left position
+    move $t1, $t7    	# Update right position
+    
+    j fast_drop_loop  	# Continue checking next row
+
+end_fast_drop:		# Update capsule positions with final location
+    sw $t0, capsule_left_pos
+    sw $t1, capsule_right_pos
+
+    # Restore return address and return normally
+    lw $ra, 0($sp)
+    addi $sp, $sp, 4
+    jr $ra    
+   
+##############################################################################
+# Function: move_left ('a' key)
+##############################################################################
+move_left:
+    # Save return address to stack
+    addi $sp, $sp, -4
+    sw $ra, 0($sp)
+
+    # Load display address and capsule positions
+    lw $t0, ADDR_DSPL      # Load display base address
+    lw $t1, capsule_left_pos
+    lw $t2, capsule_right_pos
+
+    # Determine orientation based on position difference
+    sub $t3, $t1, $t2  # Difference between positions (left - right)
+
+    # Check orientation to determine which pieces to check
+    li $t5, -4         # Horizontal (left is to the left of right)
+    beq $t3, $t5, left_check_left_piece
+    li $t5, 4          # Horizontal (right is to the left of left)
+    beq $t3, $t5, left_check_right_piece
+    li $t5, -128       # Vertical (left is above right)
+    beq $t3, $t5, left_check_both_pieces
+    li $t5, 128        # Vertical (left is below right)
+    beq $t3, $t5, left_check_both_pieces
+    j end_move_right   # Unknown orientation, don't move
+
+left_check_left_piece:	  	# Check only the left piece (left is leftmost)
+    addi $t5, $t1, -4   	# Position to the left of left piece
+    add $t6, $t0, $t5
+    lw $t7, 0($t6)     	# Load color at that position
+    bnez $t7, end_move_left  	# If not black (0), don't move
+    j perform_move_left
+
+left_check_right_piece:	# Check only the right piece (right is leftmost)
+    addi $t5, $t2, -4   	# Position to the left of right piece
+    add $t6, $t0, $t5
+    lw $t7, 0($t6)     	# Load color at that position
+    bnez $t7, end_move_left  	# If not black (0), don't move
+    j perform_move_left
+
+left_check_both_pieces:	# Check both pieces (vertical orientation)
+    addi $t5, $t1, -4   	# Position to the left of left piece
+    add $t6, $t0, $t5
+    lw $t7, 0($t6)     	# Load color at that position
+    bnez $t7, end_move_right  	# If not black (0), don't move
+
+    addi $t5, $t2, -4   	# Position to the left of right piece
+    add $t6, $t0, $t5
+    lw $t7, 0($t6)     	# Load color at that position
+    bnez $t7, end_move_right  	# If not black (0), don't move
+    j perform_move_left
+
+perform_move_left:	 # Move left by 1 pixel
+    addi $t1, $t1, -4   # Move left piece right
+    addi $t2, $t2, -4   # Move right piece right
+    
+    # Update capsule positions
+    sw $t1, capsule_left_pos
+    sw $t2, capsule_right_pos
+
+end_move_left:	   	# Restore return address
+    lw $ra, 0($sp)
+    addi $sp, $sp, 4   
+    j apply_gravity    # Continue with the main game loop
+    
+##############################################################################
+# Function: move_right ('d' key)
+##############################################################################
+move_right:
+    # Save return address to stack
+    addi $sp, $sp, -4
+    sw $ra, 0($sp)
+
+    # Load display address and capsule positions
+    lw $t0, ADDR_DSPL      # Load display base address
+    lw $t1, capsule_left_pos
+    lw $t2, capsule_right_pos
+
+    # Determine orientation based on position difference
+    sub $t3, $t1, $t2  # Difference between positions (left - right)
+
+    # Check orientation to determine which pieces to check
+    li $t5, -4         # Horizontal (right is to the right of left)
+    beq $t3, $t5, right_check_right_piece  
+    li $t5, 4          # Horizontal (left is to the right of right)
+    beq $t3, $t5, right_check_left_piece   
+    li $t5, -128       # Vertical (right is below left)
+    beq $t3, $t5, right_check_both_pieces   
+    li $t5, 128        # Vertical (right is above left)
+    beq $t3, $t5, right_check_both_pieces
+    j end_move_right   # Unknown orientation, don't move
+
+right_check_right_piece:
+    # Check only the right piece (right is rightmost)
+    addi $t5, $t2, 4   # Position to the right of right piece
+    add $t6, $t0, $t5
+    lw $t7, 0($t6)     # Load color at that position
+    bnez $t7, end_move_right  # If not black (0), don't move   
+    j perform_move_right
+
+right_check_left_piece:
+    # Check only the left piece (left is rightmost)
+    addi $t5, $t1, 4   # Position to the right of left piece
+    add $t6, $t0, $t5
+    lw $t7, 0($t6)     # Load color at that position
+    bnez $t7, end_move_right  # If not black (0), don't move
+    j perform_move_right
+
+right_check_both_pieces:
+    # Check both pieces (vertical orientation)
+    addi $t5, $t1, 4   # Position to the right of left piece
+    add $t6, $t0, $t5
+    lw $t7, 0($t6)     # Load color at that position
+    bnez $t7, end_move_right  # If not black (0), don't move
+
+    addi $t5, $t2, 4   # Position to the right of right piece
+    add $t6, $t0, $t5
+    lw $t7, 0($t6)     # Load color at that position
+    bnez $t7, end_move_right  # If not black (0), don't move
+    j perform_move_right
+
+perform_move_right:
+    # Move right by 1 pixel (4 bytes per pixel)
+    addi $t1, $t1, 4   # Move left piece right
+    addi $t2, $t2, 4   # Move right piece right
+    
+    # Update capsule positions
+    sw $t1, capsule_left_pos
+    sw $t2, capsule_right_pos
+
+end_move_right:
+    # Restore return address
+    lw $ra, 0($sp)
+    addi $sp, $sp, 4
+    j apply_gravity    # Continue with the main game loop
+
+##############################################################################
+# Function: rotate_capsule ('w' key)
+##############################################################################
+rotate_capsule:
+    # Save return address to stack
+    addi $sp, $sp, -4
+    sw $ra, 0($sp)
+
+    # Load the display address and current capsule positions
+    lw $t0, ADDR_DSPL
+    lw $t1, capsule_left_pos   # Left position (anchor)
+    lw $t2, capsule_right_pos  # Right position
+
+    # Calculate difference to determine current orientation
+    sub $t3, $t2, $t1          # t3 = right - left (changed from left-right)
+
+    # Check orientation and rotate accordingly
+    li $t4, 4                  # Right is to the right of left
+    beq $t3, $t4, rotate_horizontal_to_vertical_down
+    li $t4, 128                # Right is below left
+    beq $t3, $t4, rotate_vertical_to_horizontal_left
+    li $t4, -4                 # Right is to the left of left
+    beq $t3, $t4, rotate_horizontal_to_vertical_up
+    li $t4, -128               # Right is above left
+    beq $t3, $t4, rotate_vertical_to_horizontal_right
+    j rotation_complete        # Invalid state or already initiated
+
+rotate_horizontal_to_vertical_down:	# Right is to the right, rotate to down
+    addi $t4, $t1, 128         	# Address below left
+    add $t5, $t0, $t4
+    lw $t6, 0($t5)             	# Load color at that position
+    bnez $t6, rotation_complete     	# Check if position below left is empty
+
+    # Update right capsule position to below left (left position stays the same)
+    addi $t2, $t1, 128         # New right position is below left
+    sw $t2, capsule_right_pos  # Store updated right position
+    j rotation_complete
+
+rotate_vertical_to_horizontal_left:  	# Right is below, rotate to left
+    addi $t4, $t1, -4          	# Address to the left of left
+    add $t5, $t0, $t4
+    lw $t6, 0($t5)             	# Load color at that position
+    bnez $t6, rotation_complete     	# Check if position to the left of left is empty
+
+    # Update right capsule position to left of left (left position stays the same)
+    addi $t2, $t1, -4          # New right position is to the left of left
+    sw $t2, capsule_right_pos  # Store updated right position
+    j rotation_complete
+
+rotate_horizontal_to_vertical_up:	# Right is to the left, rotate to up
+    addi $t4, $t1, -128        	# Address above left
+    add $t5, $t0, $t4
+    lw $t6, 0($t5)             	# Load color at that position
+    bnez $t6, rotation_complete 	# Check if position above left is empty
+
+    # Update right capsule position to above left (left position stays the same)
+    addi $t2, $t1, -128        # New right position is above left
+    sw $t2, capsule_right_pos  # Store updated right position
+    j rotation_complete
+
+rotate_vertical_to_horizontal_right:	# Right is above, rotate to right
+    addi $t4, $t1, 4           	# Address to the right of left
+    add $t5, $t0, $t4
+    lw $t6, 0($t5)             	# Load color at that position
+    bnez $t6, rotation_complete 	# Check if position to the right of left is empty
+
+    # Update right capsule position to right of left (left position stays the same)
+    addi $t2, $t1, 4           # New right position is to the right of left
+    sw $t2, capsule_right_pos  # Store updated right position
+    j rotation_complete
+
+rotation_complete:     	# Restore return address
+    lw $ra, 0($sp)
+    addi $sp, $sp, 4
+    jr $ra
+
+##############################################################################
+# Function: generate_new_capsule (Spawn a new capsule at the top)
+##############################################################################
+generate_new_capsule:
+    # Save return address to stack
+    addi $sp, $sp, -4
+    sw $ra, 0($sp)
+
+    # Reset capsule position to the top
+    li $t0, 552  # Reset to top row
+    li $t1, 680
+
+    sw $t0, capsule_left_pos
+    sw $t1, capsule_right_pos
+    
+    jal generate_capsule_colors	# Generate new random colors for the capsule
+    jal draw_capsule	   		# Draw the new capsule
+
+    # Restore return address
+    lw $ra, 0($sp)
+    addi $sp, $sp, 4
+    jr $ra
+    
+##############################################################################
+# Function: check_for_matches (Remove 4+ in a row of same color)
+##############################################################################
+check_for_matches:
+lw $t0, ADDR_DSPL      # $t0 = base address = 0x10008000
+    addi $sp, $sp, -4
+    sw $ra, 0($sp)
+
+match_loop:
+    li $t9, 0              # $t9 = found_match = 0
+    li $t8, 416            # Start of play area
+    li $t7, 3728           # End of play area
+
+check_match_pixel:
+    add $t1, $t0, $t8      # $t1 = current pixel address
+    lw $t2, 0($t1)         # Load color
+
+    # Skip if black or gray
+    lw $t3, color_black
+    beq $t2, $t3, next_pixel
+    lw $t3, gray_color
+    beq $t2, $t3, next_pixel
+
+        #####################
+    # Horizontal match
+    #####################
+    li $t4, 1              # Match count = 1 (we're on a valid pixel)
+    move $s0, $t8          # Start position (anchor)
+    move $s1, $t8          # Cursor to scan right
+
+check_horiz:
+    addi $s1, $s1, 4       # Move to the next pixel to the right
+
+    # Stop if we cross row boundary
+    li $t6, 256
+    andi $t5, $s1, 0xFC     # current column (in bytes)
+    andi $t7, $t8, 0xFC     # original column
+    sub $t5, $t5, $t7
+    bge $t5, $t6, done_horiz
+
+    # Compare color at $s1 with $t2
+    add $t3, $t0, $s1
+    lw $t6, 0($t3)
+    bne $t6, $t2, done_horiz
+
+    addi $t4, $t4, 1       # Increment match count
+    j check_horiz
+
+done_horiz:
+    li $t6, 4
+    blt $t4, $t6, skip_horiz_clear
+    li $t9, 1              # Found a match
+
+    # Clear from $t8 for $t4 matches
+    li $s2, 0
+clear_horiz_loop:
+    mul $s3, $s2, 4
+    add $s4, $t8, $s3       # pixel offset = t8 + 4*i
+    add $s5, $t0, $s4       # actual address
+    sw $zero, 0($s5)
+    addi $s2, $s2, 1
+    blt $s2, $t4, clear_horiz_loop
+
+
+skip_horiz_clear:
+
+    #####################
+    # Vertical match
+    #####################
+    li $t4, 0
+    move $s0, $t8
+
+check_vert_loop:
+    add $t5, $t0, $s0
+    lw $t6, 0($t5)
+    bne $t6, $t2, end_vert
+    addi $t4, $t4, 1
+    addi $s0, $s0, 128     # Next row
+    li $s1, 3548
+    bgt $s0, $s1, end_vert
+    j check_vert_loop
+
+end_vert:
+    li $s3, 4
+    blt $t4, $s3, skip_vert_clear
+    li $t9, 1              # Found match
+    li $s0, 0
+clear_vert_loop:
+    mul $t5, $s0, 128
+    add $t5, $t5, $t8
+    add $t6, $t0, $t5
+    sw $zero, 0($t6)
+    addi $s0, $s0, 1
+    blt $s0, $t4, clear_vert_loop
+
+skip_vert_clear:
+
+next_pixel:
+    addi $t8, $t8, 4
+    li $t3, 3660
+    blt $t8, $t3, check_match_pixel
+
+    beqz $t9, done_match_loop   # If no matches found, exit
+    jal apply_gravity_to_floating_capsules  # Otherwise, apply gravity and check again
+    j match_loop
+
+done_match_loop:
+    lw $ra, 0($sp)
+    addi $sp, $sp, 4
+    jr $ra
+    
+##############################################################################
+# Function: apply_gravity_to_floating_capsules
+##############################################################################
+apply_gravity_to_floating_capsules:
+    addi $sp, $sp, -4
+    sw $ra, 0($sp)
+
+gravity_loop:
+    li $t7, 0                # change_flag = 0
+    lw $t0, ADDR_DSPL        # $t0 = base display address
+    li $t1, 3456             # start from second-to-last row (row 60)
+    li $t6, 416              # top of playable area
+
+row_loop:
+    li $t2, 0                # column offset
+
+col_loop:
+    add $t3, $t1, $t2        # pixel index = row + col
+    add $t4, $t0, $t3        # pixel address
+    lw $t5, 0($t4)           # color at (row, col)
+
+    # Skip black or gray
+    lw $s1, color_black
+    beq $t5, $s1, skip
+    lw $s2, gray_color
+    beq $t5, $s2, skip
+
+    # Check below
+    addi $t9, $t3, 128       # pixel below
+    li $s0, 3584
+    bgt $t9, $s0, skip       # skip if out of bounds
+
+    add $t8, $t0, $t9
+    lw $s3, 0($t8)
+    bne $s3, $s1, skip       # if pixel below is NOT black, skip
+
+    
+
+    # Move pixel down
+    sw $zero, 0($t4)         # clear current
+    sw $t5, 0($t8)           # move to below
+    li $t7, 1                # set change_flag
+
+skip:
+    addi $t2, $t2, 4
+    li $s1, 256
+    blt $t2, $s1, col_loop
+
+    addi $t1, $t1, -128
+    bge $t1, $t6, row_loop
+
+    bnez $t7, gravity_loop   # Repeat if changes occurred
+
+    lw $ra, 0($sp)
+    addi $sp, $sp, 4
+    jr $ra
+    
+    
+    
+ 
+##############################################################################
+# Function: calculate_ghost_position (Calculate where capsule would land)
+##############################################################################
+calculate_ghost_position:
+    # Save return address to stack
+    addi $sp, $sp, -4   
+    sw $ra, 0($sp)
+    
+    # Load display address and current capsule positions
+    lw $t0, ADDR_DSPL
+    lw $t1, capsule_left_pos
+    lw $t2, capsule_right_pos
+    
+    # Store original positions for later use
+    move $s0, $t1   # Store original left position
+    move $s1, $t2   # Store original right position
+    
+    # Determine orientation based on position difference
+    sub $t3, $t2, $t1   # t3 = right - left
+    
+ghost_drop_loop:
+    # Calculate positions one row down
+    addi $t6, $t1, 128   # Left position + 1 row
+    addi $t7, $t2, 128   # Right position + 1 row
+    
+# Also check for the actual bottle base pixels
+add $t8, $t0, $t6    # Address of pixel below left half
+lw $t9, 0($t8)       # Load color at that position
+lw $t4, gray_color   # Load bottle color
+beq $t9, $t4, end_ghost_calc  # If it's the bottle, stop here
+
+add $t8, $t0, $t7    # Address of pixel below right half
+lw $t9, 0($t8)       # Load color at that position
+beq $t9, $t4, end_ghost_calc  # If it's the bottle, stop here
+    
+    # Determine which pixel(s) to check based on orientation
+    li $t4, 4                   # Right is to the right of left
+    beq $t3, $t4, check_horizontal_ghost
+    
+    li $t4, 128                 # Right is below left
+    beq $t3, $t4, check_vertical_down_ghost
+    
+    li $t4, -4                  # Right is to the left of left
+    beq $t3, $t4, check_horizontal_ghost
+    
+    li $t4, -128                # Right is above left
+    beq $t3, $t4, check_vertical_up_ghost
+    
+    # Default case - shouldn't happen
+    j end_ghost_calc
+
+check_horizontal_ghost:
+    # Check below left piece
+    add $t8, $t0, $t6    # Address of pixel below left half
+    lw $t9, 0($t8)       # Load color at that position
+    bnez $t9, check_if_ghost_left  # If not black, check if it's a ghost
+    
+    # Check below right piece
+    add $t8, $t0, $t7    # Address of pixel below right half
+    lw $t9, 0($t8)       # Load color at that position
+    bnez $t9, check_if_ghost_right  # If not black, check if it's a ghost
+    
+    # Both are black, continue dropping
+    j update_ghost_pos
+    
+check_if_ghost_left:
+    # Check if left position has ghost color
+    lw $t4, ghost_color
+    beq $t9, $t4, check_right_after_ghost_left  # If ghost color, check right
+    j end_ghost_calc     # Otherwise, stop here
+    
+check_right_after_ghost_left:
+    # Check below right piece after confirming ghost on left
+    add $t8, $t0, $t7    # Address of pixel below right half
+    lw $t9, 0($t8)       # Load color at that position
+    bnez $t9, check_if_ghost_right  # If not black, check if it's a ghost
+    j update_ghost_pos   # Right is black, continue dropping
+    
+check_if_ghost_right:
+    # Check if right position has ghost color
+    lw $t4, ghost_color
+    beq $t9, $t4, update_ghost_pos  # If ghost color, continue
+    j end_ghost_calc     # Otherwise, stop here
+
+check_vertical_down_ghost:
+    # Only check below bottom piece (right)
+    add $t8, $t0, $t7    # Address of pixel below bottom half
+    lw $t9, 0($t8)       # Load color at that position
+    beqz $t9, update_ghost_pos  # If black (0), continue
+    
+    lw $t4, ghost_color
+    beq $t9, $t4, update_ghost_pos  # If ghost color, continue
+    j end_ghost_calc     # Otherwise, stop here
+
+check_vertical_up_ghost:
+    # Only check below bottom piece (left)
+    add $t8, $t0, $t6    # Address of pixel below bottom half
+    lw $t9, 0($t8)       # Load color at that position
+    beqz $t9, update_ghost_pos  # If black (0), continue
+    
+    lw $t4, ghost_color
+    beq $t9, $t4, update_ghost_pos  # If ghost color, continue
+    j end_ghost_calc     # Otherwise, stop here
+
+update_ghost_pos:
+    # Move ghost position down one row
+    move $t1, $t6    # Update left position
+    move $t2, $t7    # Update right position
+    
+    j ghost_drop_loop  # Continue checking next row
+
+end_ghost_calc:
+    # Store the final ghost positions
+    sw $t1, ghost_left_pos
+    sw $t2, ghost_right_pos
+    
+    # Restore original capsule positions
+    move $t1, $s0
+    move $t2, $s1
+    
+    # Restore return address
+    lw $ra, 0($sp)
+    addi $sp, $sp, 4
+    jr $ra
+
+##############################################################################
+# Function: draw_ghost_capsule (Draw the ghost capsule)
+##############################################################################
+draw_ghost_capsule:
+    # Save return address
+    addi $sp, $sp, -4
+    sw $ra, 0($sp)
+    
+    # Calculate ghost position first
+    jal calculate_ghost_position
+    
+    # Don't draw if ghost position is same as actual position
+    lw $t0, capsule_left_pos
+    lw $t1, ghost_left_pos
+    beq $t0, $t1, skip_ghost_draw
+    
+    # Draw ghost capsule
+    lw $t0, ADDR_DSPL      # Load display base address
+    lw $t1, ghost_color    # Load ghost color
+    
+    # Draw left half
+    lw $t2, ghost_left_pos
+    add $t3, $t0, $t2
+    sw $t1, 0($t3)
+    
+    # Draw right half
+    lw $t2, ghost_right_pos
+    add $t3, $t0, $t2
+    sw $t1, 0($t3)
+    
+skip_ghost_draw:
+    # Restore return address
+    lw $ra, 0($sp)
+    addi $sp, $sp, 4
+    jr $ra
+
+##############################################################################
+# Function: erase_ghost_capsule (Erase the ghost capsule)
+##############################################################################
+erase_ghost_capsule:
+    # Load the black color
+    lw $t0, color_black   # $t0 = black color (0x000000)
+    
+    # Load the ghost capsule's current positions
+    lw $t1, ghost_left_pos
+    lw $t2, ghost_right_pos
+    
+    # Only erase if positions are not zero
+    beqz $t1, ghost_erase_done
+    beqz $t2, ghost_erase_done
+    
+    # Erase left half
+    lw $t3, ADDR_DSPL
+    add $t4, $t3, $t1
+    sw $t0, 0($t4)
+    
+    # Erase right half
+    add $t4, $t3, $t2
+    sw $t0, 0($t4)
+    
+ghost_erase_done:
+    jr $ra  # Return to caller
+
+
+
+
+
+
+##############################################################################
 # Function: draw_text_array - Generic function to draw any text array
 #
 # Parameters:
@@ -508,941 +1399,3 @@ bottom_loop:
     addi $sp, $sp, 4
     jr $ra  # Return
     
-##############################################################################
-# Function to return random color
-##############################################################################
-generate_random_color:
-    li $v0, 42                      # syscall 42: generate random number
-    li $a0, 0                       # Random number generator ID 0
-    li $a1, 3                       # Upper bound 3 (exclusive), so 0-2 inclusive
-    syscall
-    
-    beq $a0, 0, return_red          # Check if the random number is 0
-    beq $a0, 1, return_green        # Check if the random number is 1
-    beq $a0, 2, return_blue         # Check if the random number is 2
-    j colour_selection_end
-
-return_red:
-    lw $v0, color_red              # Return red color
-    j colour_selection_end
-return_green:
-    lw $v0, color_yellow           # Return yellow color
-    j colour_selection_end
-return_blue:
-    lw $v0, color_blue             # Return blue color
-    j colour_selection_end
-colour_selection_end:
-    jr $ra
-
-##############################################################################
-# Function: generate_capsule_colors
-# Generates random colors for both halves of the capsule using syscall
-# Returns: None (updates capsule_left and capsule_right in memory)
-##############################################################################
-generate_capsule_colors:
-    addi $sp, $sp, -4       # Save return address
-    sw $ra, 0($sp)
-    
-    jal generate_random_color       # Generate first random color
-    move $t2, $v0                   # $t2 = first color
-    
-    jal generate_random_color       # Generate second random color
-    move $t3, $v0                   # $t3 = second color
-    
-    # Set left color
-    move $a1, $t2                   # $a1 = first random color
-    sw $a1, capsule_left            # Set left color
-    
-    # Set right color
-    move $a1, $t3                   # $a1 = second random color
-    sw $a1, capsule_right           # Set right color
-    
-    lw $ra, 0($sp)                  # Load return address
-    addi $sp, $sp, 4               
-    jr $ra                          # Return
-    
-##############################################################################
-# Function: draw_capsule (Place Random Capsule in Memory)
-##############################################################################
-draw_capsule:
-    lw $t0, ADDR_DSPL  # Load display base address
-    lw $t5, capsule_left # Load left half color
-    lw $t6, capsule_right # Load right half color
-    lw $a0, capsule_left_pos
-    lw $a1, capsule_right_pos
-    
-    # Compute the address for the first half (552)
-    add $t7, $t0, $a0  # t7 = base + 552
-    sw $t5, 0($t7)  # Store first half color
-
-    # Compute the address for the second half (680)
-    add $t8, $t0, $a1  # t8 = base + 680
-    sw $t6, 0($t8)  # Store second half color
-    jr $ra  # Return
-    
-##############################################################################
-# Function: erase_capsule (Place Random Capsule in Memory)
-##############################################################################
-erase_capsule:
-    lw $t0, color_black   # Load lack color (0x000000)
-
-    # Load the capsule's current positions
-    lw $t1, capsule_left_pos   # $t1 = left capsule position
-    lw $t2, capsule_right_pos  # $t2 = right capsule position
-
-    lw $t3, ADDR_DSPL  
-    add $t4, $t3, $t1  	# Calculate current position
-    sw $t0, 0($t4)  		# Set value to black
-    add $t5, $t3, $t2  
-    sw $t0, 0($t5) 
-    jr $ra  			# Return to caller
-   
-##############################################################################
-# Apply Gravity Function 
-##############################################################################
-apply_gravity:
-    # Save return address
-    addi $sp, $sp, -4
-    sw $ra, 0($sp)
-    
-    # Apply gravity (former move_down code)
-    jal erase_capsule  # Erase current position
-    jal move_down      # Calculate new position
-    jal draw_capsule   # Draw at new position
-    
-    # Restore return address
-    lw $ra, 0($sp)
-    addi $sp, $sp, 4
-    jr $ra
-
-##############################################################################
-# Function: move_down (Apply Gravity)
-##############################################################################
-move_down:
-    lw $t0, ADDR_DSPL        # Load display base address
-    lw $t5, capsule_left     # Left half color
-    lw $t6, capsule_right    # Right half color
-
-    lw $a0, capsule_left_pos    # Load current positions
-    lw $a1, capsule_right_pos
-
-    # Determine if the capsule is vertical or horizontal and which way
-    sub $t3, $a1, $a0       # Difference between positions
-
-    # Orientation checks
-    li $t4, 4
-    beq $t3, $t4, check_horizontal    # Right is to the right of left
-    li $t4, 128
-    beq $t3, $t4, check_vertical_down # Right is below left
-    li $t4, -4
-    beq $t3, $t4, check_horizontal    # Right is to the left of left
-    li $t4, -128
-    beq $t3, $t4, check_vertical_up   	# Right is above left
-    j stop_moving  		       	# Default case
-
-check_vertical_down:
-    # For vertical orientation with right below left
-    addi $t7, $a1, 128      # Position below right (bottom) half
-    add $t8, $t0, $t7
-    lw $t9, 0($t8)          # Load color of pixel below
-    beqz $t9, move_down_continue   # If black, move down
-    
-    # Check if it's a ghost capsule
-    lw $t4, ghost_color
-    beq $t9, $t4, move_down_continue  # If ghost color, move down
-    j stop_moving   # Otherwise, stop moving
-
-check_vertical_up:
-    # For vertical orientation with right above left
-    addi $t7, $a0, 128      # Position below left (bottom) half
-    add $t8, $t0, $t7
-    lw $t9, 0($t8)          # Load color of pixel below
-    beqz $t9, move_down_continue   # If black, move down
-    
-    # Check if it's a ghost capsule
-    lw $t4, ghost_color
-    beq $t9, $t4, move_down_continue  # If ghost color, move down
-    j stop_moving   # Otherwise, stop moving
-
-check_horizontal:
-    # For horizontal orientation, check below both pieces
-    addi $t7, $a0, 128      # Position below left half
-    add $t8, $t0, $t7
-    lw $t9, 0($t8)          # Load color of pixel below left
-    beqz $t9, check_horizontal_right   # If black, check right piece
-    
-    # Check if it's a ghost capsule
-    lw $t4, ghost_color
-    beq $t9, $t4, check_horizontal_right  # If ghost color, check right
-    j stop_moving   	# Otherwise, stop moving
-
-check_horizontal_right:
-    addi $t7, $a1, 128      # Position below right half
-    add $t8, $t0, $t7
-    lw $s1, 0($t8)          		# Load color of pixel below right
-    beqz $s1, move_down_continue   	# If black, move down
-    
-    # Check if it's a ghost capsule
-    lw $t4, ghost_color
-    beq $s1, $t4, move_down_continue  # If ghost color, move down
-    j stop_moving   			# Otherwise, stop moving
-
-move_down_continue:
-    # Clear previous position (set to background color)
-    add $t8, $t0, $a0
-    sw $zero, 0($t8)        # Clear left half
-
-    add $t9, $t0, $a1
-    sw $zero, 0($t9)        # Clear right half
-
-    addi $a0, $a0, 128	     # Move down by one row
-    addi $a1, $a1, 128
-
-    # Store updated position
-    sw $a0, capsule_left_pos
-    sw $a1, capsule_right_pos
-
-    jal draw_capsule	    # Draw capsule at new position
-    j game_loop            # Continue looping
-
-stop_moving:    
-    jal erase_ghost_capsule	# Erase ghost capsule when capsule stops
-    jal draw_capsule		# Draw the current capsule in its final position
-    
-    # Reset ghost positions
-    li $t0, 0
-    sw $t0, ghost_left_pos
-    sw $t0, ghost_right_pos
-    
-    jal check_for_matches
-    jal generate_new_capsule	    # Then generate a new capsule
-    j game_loop
-
-##############################################################################
-# Function: move_down_fast ('s' key to drop quickly)
-##############################################################################
-move_down_fast:
-    # Save return address to stack
-    addi $sp, $sp, -4   
-    sw $ra, 0($sp)
-    
-    # Load display address and current positions
-    lw $t5, ADDR_DSPL
-    lw $t0, capsule_left_pos
-    lw $t1, capsule_right_pos
-
-    # Determine orientation based on position difference
-    sub $t3, $t1, $t0           # t3 = right - left
-
-fast_drop_loop:
-    # Calculate positions one row down
-    addi $t6, $t0, 128   # Left position + 1 row
-    addi $t7, $t1, 128   # Right position + 1 row
-    
-    # Check if we've hit the bottom boundary
-    li $t2, 3464            # Bottom boundary
-    bge $t6, $t2, end_fast_drop
-    bge $t7, $t2, end_fast_drop
-    
-    # Determine which pixel(s) to check based on orientation
-    li $t4, 4                   # Horizontal (right to right of left)
-    beq $t3, $t4, check_horizontal_fast
-    
-    li $t4, 128                 # Vertical (right below left)
-    beq $t3, $t4, check_vertical_down_fast
-    
-    li $t4, -4                  # Horizontal (right to left of left)
-    beq $t3, $t4, check_horizontal_fast
-    
-    li $t4, -128                # Vertical (right above left)
-    beq $t3, $t4, check_vertical_up_fast
-    
-    j end_fast_drop	  # Default case - shouldn't happen
-
-check_horizontal_fast:	  # Check below both pieces
-    add $t8, $t5, $t6    # Address of pixel below left half
-    lw $t9, 0($t8)       # Load color at that position
-    bnez $t9, end_fast_drop  # If not black (0), stop
-
-    add $t8, $t5, $t7    # Address of pixel below right half
-    lw $t9, 0($t8)       # Load color at that position
-    bnez $t9, end_fast_drop  # If not black (0), stop
-    
-    j update_fast_drop_pos
-
-check_vertical_down_fast:    	# Only check below bottom piece (right)
-    add $t8, $t5, $t7    	# Address of pixel below bottom half
-    lw $t9, 0($t8)       	# Load color at that position
-    bnez $t9, end_fast_drop  	# If not black (0), stop
-    
-    j update_fast_drop_pos
-
-check_vertical_up_fast:  # Only check below bottom piece (left)
-    add $t8, $t5, $t6    # Address of pixel below bottom half
-    lw $t9, 0($t8)       # Load color at that position
-    bnez $t9, end_fast_drop  # If not black (0), stop
-    
-    j update_fast_drop_pos
-
-update_fast_drop_pos:	# Move capsule down one row
-    move $t0, $t6    	# Update left position
-    move $t1, $t7    	# Update right position
-    
-    j fast_drop_loop  	# Continue checking next row
-
-end_fast_drop:		# Update capsule positions with final location
-    sw $t0, capsule_left_pos
-    sw $t1, capsule_right_pos
-
-    # Restore return address and return normally
-    lw $ra, 0($sp)
-    addi $sp, $sp, 4
-    jr $ra    
-   
-##############################################################################
-# Function: move_left ('a' key)
-
-# get left and right positions
-# if left - right = 128 or -128
-#	if either left side of both left and right is not black, dont move
-#	else: update positions of both to one left
-# if left - right = 4, right is to the left
-# 	if left side of right is not black, dont move
-#	else: update positions of both to one left
-# if left - right = -4, left is to the left 
-# 	if right side of left is not black, dont move
-#	else: update positions of both to one right
-##############################################################################
-move_left:
-    # Save return address to stack
-    addi $sp, $sp, -4
-    sw $ra, 0($sp)
-
-    # Load display address and capsule positions
-    lw $t0, ADDR_DSPL      # Load display base address
-    lw $t1, capsule_left_pos
-    lw $t2, capsule_right_pos
-
-    # Determine orientation based on position difference
-    sub $t3, $t1, $t2  # Difference between positions (left - right)
-
-    # Check orientation to determine which pieces to check
-    li $t5, -4         # Horizontal (left is to the left of right)
-    beq $t3, $t5, left_check_left_piece
-    li $t5, 4          # Horizontal (right is to the left of left)
-    beq $t3, $t5, left_check_right_piece
-    li $t5, -128       # Vertical (left is above right)
-    beq $t3, $t5, left_check_both_pieces
-    li $t5, 128        # Vertical (left is below right)
-    beq $t3, $t5, left_check_both_pieces
-    j end_move_right   # Unknown orientation, don't move
-
-left_check_left_piece:	  	# Check only the left piece (left is leftmost)
-    addi $t5, $t1, -4   	# Position to the left of left piece
-    add $t6, $t0, $t5
-    lw $t7, 0($t6)     	# Load color at that position
-    bnez $t7, end_move_left  	# If not black (0), don't move
-    j perform_move_left
-
-left_check_right_piece:	# Check only the right piece (right is leftmost)
-    addi $t5, $t2, -4   	# Position to the left of right piece
-    add $t6, $t0, $t5
-    lw $t7, 0($t6)     	# Load color at that position
-    bnez $t7, end_move_left  	# If not black (0), don't move
-    j perform_move_left
-
-left_check_both_pieces:	# Check both pieces (vertical orientation)
-    addi $t5, $t1, -4   	# Position to the left of left piece
-    add $t6, $t0, $t5
-    lw $t7, 0($t6)     	# Load color at that position
-    bnez $t7, end_move_right  	# If not black (0), don't move
-
-    addi $t5, $t2, -4   	# Position to the left of right piece
-    add $t6, $t0, $t5
-    lw $t7, 0($t6)     	# Load color at that position
-    bnez $t7, end_move_right  	# If not black (0), don't move
-    j perform_move_left
-
-perform_move_left:	 # Move left by 1 pixel
-    addi $t1, $t1, -4   # Move left piece right
-    addi $t2, $t2, -4   # Move right piece right
-    
-    # Update capsule positions
-    sw $t1, capsule_left_pos
-    sw $t2, capsule_right_pos
-
-end_move_left:	   	# Restore return address
-    lw $ra, 0($sp)
-    addi $sp, $sp, 4   
-    j apply_gravity    # Continue with the main game loop
-    
-##############################################################################
-# Function: move_right ('d' key)
-
-# get left and right positions
-# if left - right = 128 or -128
-#	if either right side of both left and right is not black, dont move
-#	else: update positions of both to one right
-# if left - right = 4, left is to the right
-# 	if right side of right is not black, dont move
-#	else: update positions of both to one right
-# if left - right = -4, right is to the right 
-# 	if right side of left is not black, dont move
-#	else: update positions of both to one right
-##############################################################################
-move_right:
-    # Save return address to stack
-    addi $sp, $sp, -4
-    sw $ra, 0($sp)
-
-    # Load display address and capsule positions
-    lw $t0, ADDR_DSPL      # Load display base address
-    lw $t1, capsule_left_pos
-    lw $t2, capsule_right_pos
-
-    # Determine orientation based on position difference
-    sub $t3, $t1, $t2  # Difference between positions (left - right)
-
-    # Check orientation to determine which pieces to check
-    li $t5, -4         # Horizontal (right is to the right of left)
-    beq $t3, $t5, right_check_right_piece  
-    li $t5, 4          # Horizontal (left is to the right of right)
-    beq $t3, $t5, right_check_left_piece   
-    li $t5, -128       # Vertical (right is below left)
-    beq $t3, $t5, right_check_both_pieces   
-    li $t5, 128        # Vertical (right is above left)
-    beq $t3, $t5, right_check_both_pieces
-    j end_move_right   # Unknown orientation, don't move
-
-right_check_right_piece:
-    # Check only the right piece (right is rightmost)
-    addi $t5, $t2, 4   # Position to the right of right piece
-    add $t6, $t0, $t5
-    lw $t7, 0($t6)     # Load color at that position
-    bnez $t7, end_move_right  # If not black (0), don't move   
-    j perform_move_right
-
-right_check_left_piece:
-    # Check only the left piece (left is rightmost)
-    addi $t5, $t1, 4   # Position to the right of left piece
-    add $t6, $t0, $t5
-    lw $t7, 0($t6)     # Load color at that position
-    bnez $t7, end_move_right  # If not black (0), don't move
-    j perform_move_right
-
-right_check_both_pieces:
-    # Check both pieces (vertical orientation)
-    addi $t5, $t1, 4   # Position to the right of left piece
-    add $t6, $t0, $t5
-    lw $t7, 0($t6)     # Load color at that position
-    bnez $t7, end_move_right  # If not black (0), don't move
-
-    addi $t5, $t2, 4   # Position to the right of right piece
-    add $t6, $t0, $t5
-    lw $t7, 0($t6)     # Load color at that position
-    bnez $t7, end_move_right  # If not black (0), don't move
-    j perform_move_right
-
-perform_move_right:
-    # Move right by 1 pixel (4 bytes per pixel)
-    addi $t1, $t1, 4   # Move left piece right
-    addi $t2, $t2, 4   # Move right piece right
-    
-    # Update capsule positions
-    sw $t1, capsule_left_pos
-    sw $t2, capsule_right_pos
-
-end_move_right:
-    # Restore return address
-    lw $ra, 0($sp)
-    addi $sp, $sp, 4
-    j apply_gravity    # Continue with the main game loop
-
-##############################################################################
-# Function: rotate_capsule ('w' key)
-
-# get the left and right position. 
-# we will treat the left position as an anchor, meaning it never moves during rotations
-# calculate the different between the two positions to determine the current state
-# if left - right = -4, right is to the right of left
-#	if the position below left is black
-#		update position of right capsule and redraw
-#	else rotation not possible
-# if left - right = 4, right is to the left of left
-#	if the position above left is black
-#		update position of right capsule and redraw
-#	else rotation not possible
-# if left - right - 128, right is above left
-#	if the position to the left of left is black
-#		update position of right capsule and redraw
-#	else rotation not possible
-# if left - right = -128, righ is below left 
-#	if the position to the right of left is black
-#		update position of right capsule and redraw
-#	else rotation not possible
-##############################################################################
-rotate_capsule:
-    # Save return address to stack
-    addi $sp, $sp, -4
-    sw $ra, 0($sp)
-
-    # Load the display address and current capsule positions
-    lw $t0, ADDR_DSPL
-    lw $t1, capsule_left_pos   # Left position (anchor)
-    lw $t2, capsule_right_pos  # Right position
-
-    # Calculate difference to determine current orientation
-    sub $t3, $t2, $t1          # t3 = right - left (changed from left-right)
-
-    # Check orientation and rotate accordingly
-    li $t4, 4                  # Right is to the right of left
-    beq $t3, $t4, rotate_horizontal_to_vertical_down
-    li $t4, 128                # Right is below left
-    beq $t3, $t4, rotate_vertical_to_horizontal_left
-    li $t4, -4                 # Right is to the left of left
-    beq $t3, $t4, rotate_horizontal_to_vertical_up
-    li $t4, -128               # Right is above left
-    beq $t3, $t4, rotate_vertical_to_horizontal_right
-    j rotation_complete        # Invalid state or already initiated
-
-rotate_horizontal_to_vertical_down:	# Right is to the right, rotate to down
-    addi $t4, $t1, 128         	# Address below left
-    add $t5, $t0, $t4
-    lw $t6, 0($t5)             	# Load color at that position
-    bnez $t6, rotation_complete     	# Check if position below left is empty
-
-    # Update right capsule position to below left (left position stays the same)
-    addi $t2, $t1, 128         # New right position is below left
-    sw $t2, capsule_right_pos  # Store updated right position
-    j rotation_complete
-
-rotate_vertical_to_horizontal_left:  	# Right is below, rotate to left
-    addi $t4, $t1, -4          	# Address to the left of left
-    add $t5, $t0, $t4
-    lw $t6, 0($t5)             	# Load color at that position
-    bnez $t6, rotation_complete     	# Check if position to the left of left is empty
-
-    # Update right capsule position to left of left (left position stays the same)
-    addi $t2, $t1, -4          # New right position is to the left of left
-    sw $t2, capsule_right_pos  # Store updated right position
-    j rotation_complete
-
-rotate_horizontal_to_vertical_up:	# Right is to the left, rotate to up
-    addi $t4, $t1, -128        	# Address above left
-    add $t5, $t0, $t4
-    lw $t6, 0($t5)             	# Load color at that position
-    bnez $t6, rotation_complete 	# Check if position above left is empty
-
-    # Update right capsule position to above left (left position stays the same)
-    addi $t2, $t1, -128        # New right position is above left
-    sw $t2, capsule_right_pos  # Store updated right position
-    j rotation_complete
-
-rotate_vertical_to_horizontal_right:	# Right is above, rotate to right
-    addi $t4, $t1, 4           	# Address to the right of left
-    add $t5, $t0, $t4
-    lw $t6, 0($t5)             	# Load color at that position
-    bnez $t6, rotation_complete 	# Check if position to the right of left is empty
-
-    # Update right capsule position to right of left (left position stays the same)
-    addi $t2, $t1, 4           # New right position is to the right of left
-    sw $t2, capsule_right_pos  # Store updated right position
-    j rotation_complete
-
-rotation_complete:     	# Restore return address
-    lw $ra, 0($sp)
-    addi $sp, $sp, 4
-    jr $ra
-
-##############################################################################
-# Function: generate_new_capsule (Spawn a new capsule at the top)
-##############################################################################
-generate_new_capsule:
-    # Save return address to stack
-    addi $sp, $sp, -4
-    sw $ra, 0($sp)
-
-    # Reset capsule position to the top
-    li $t0, 552  # Reset to top row
-    li $t1, 680
-
-    sw $t0, capsule_left_pos
-    sw $t1, capsule_right_pos
-    
-    jal generate_capsule_colors	# Generate new random colors for the capsule
-    jal draw_capsule	   		# Draw the new capsule
-
-    # Restore return address
-    lw $ra, 0($sp)
-    addi $sp, $sp, 4
-    jr $ra
-
-##############################################################################
-# Function: calculate_ghost_position (Calculate where capsule would land)
-##############################################################################
-calculate_ghost_position:
-    # Save return address to stack
-    addi $sp, $sp, -4   
-    sw $ra, 0($sp)
-    
-    # Load display address and current capsule positions
-    lw $t0, ADDR_DSPL
-    lw $t1, capsule_left_pos
-    lw $t2, capsule_right_pos
-    
-    # Store original positions for later use
-    move $s0, $t1   # Store original left position
-    move $s1, $t2   # Store original right position
-    
-    # Determine orientation based on position difference
-    sub $t3, $t2, $t1   # t3 = right - left
-    
-ghost_drop_loop:
-    # Calculate positions one row down
-    addi $t6, $t1, 128   # Left position + 1 row
-    addi $t7, $t2, 128   # Right position + 1 row
-    
-# Also check for the actual bottle base pixels
-add $t8, $t0, $t6    # Address of pixel below left half
-lw $t9, 0($t8)       # Load color at that position
-lw $t4, gray_color   # Load bottle color
-beq $t9, $t4, end_ghost_calc  # If it's the bottle, stop here
-
-add $t8, $t0, $t7    # Address of pixel below right half
-lw $t9, 0($t8)       # Load color at that position
-beq $t9, $t4, end_ghost_calc  # If it's the bottle, stop here
-    
-    # Determine which pixel(s) to check based on orientation
-    li $t4, 4                   # Right is to the right of left
-    beq $t3, $t4, check_horizontal_ghost
-    
-    li $t4, 128                 # Right is below left
-    beq $t3, $t4, check_vertical_down_ghost
-    
-    li $t4, -4                  # Right is to the left of left
-    beq $t3, $t4, check_horizontal_ghost
-    
-    li $t4, -128                # Right is above left
-    beq $t3, $t4, check_vertical_up_ghost
-    
-    # Default case - shouldn't happen
-    j end_ghost_calc
-
-check_horizontal_ghost:
-    # Check below left piece
-    add $t8, $t0, $t6    # Address of pixel below left half
-    lw $t9, 0($t8)       # Load color at that position
-    bnez $t9, check_if_ghost_left  # If not black, check if it's a ghost
-    
-    # Check below right piece
-    add $t8, $t0, $t7    # Address of pixel below right half
-    lw $t9, 0($t8)       # Load color at that position
-    bnez $t9, check_if_ghost_right  # If not black, check if it's a ghost
-    
-    # Both are black, continue dropping
-    j update_ghost_pos
-    
-check_if_ghost_left:
-    # Check if left position has ghost color
-    lw $t4, ghost_color
-    beq $t9, $t4, check_right_after_ghost_left  # If ghost color, check right
-    j end_ghost_calc     # Otherwise, stop here
-    
-check_right_after_ghost_left:
-    # Check below right piece after confirming ghost on left
-    add $t8, $t0, $t7    # Address of pixel below right half
-    lw $t9, 0($t8)       # Load color at that position
-    bnez $t9, check_if_ghost_right  # If not black, check if it's a ghost
-    j update_ghost_pos   # Right is black, continue dropping
-    
-check_if_ghost_right:
-    # Check if right position has ghost color
-    lw $t4, ghost_color
-    beq $t9, $t4, update_ghost_pos  # If ghost color, continue
-    j end_ghost_calc     # Otherwise, stop here
-
-check_vertical_down_ghost:
-    # Only check below bottom piece (right)
-    add $t8, $t0, $t7    # Address of pixel below bottom half
-    lw $t9, 0($t8)       # Load color at that position
-    beqz $t9, update_ghost_pos  # If black (0), continue
-    
-    lw $t4, ghost_color
-    beq $t9, $t4, update_ghost_pos  # If ghost color, continue
-    j end_ghost_calc     # Otherwise, stop here
-
-check_vertical_up_ghost:
-    # Only check below bottom piece (left)
-    add $t8, $t0, $t6    # Address of pixel below bottom half
-    lw $t9, 0($t8)       # Load color at that position
-    beqz $t9, update_ghost_pos  # If black (0), continue
-    
-    lw $t4, ghost_color
-    beq $t9, $t4, update_ghost_pos  # If ghost color, continue
-    j end_ghost_calc     # Otherwise, stop here
-
-update_ghost_pos:
-    # Move ghost position down one row
-    move $t1, $t6    # Update left position
-    move $t2, $t7    # Update right position
-    
-    j ghost_drop_loop  # Continue checking next row
-
-end_ghost_calc:
-    # Store the final ghost positions
-    sw $t1, ghost_left_pos
-    sw $t2, ghost_right_pos
-    
-    # Restore original capsule positions
-    move $t1, $s0
-    move $t2, $s1
-    
-    # Restore return address
-    lw $ra, 0($sp)
-    addi $sp, $sp, 4
-    jr $ra
-
-##############################################################################
-# Function: draw_ghost_capsule (Draw the ghost capsule)
-##############################################################################
-draw_ghost_capsule:
-    # Save return address
-    addi $sp, $sp, -4
-    sw $ra, 0($sp)
-    
-    # Calculate ghost position first
-    jal calculate_ghost_position
-    
-    # Don't draw if ghost position is same as actual position
-    lw $t0, capsule_left_pos
-    lw $t1, ghost_left_pos
-    beq $t0, $t1, skip_ghost_draw
-    
-    # Draw ghost capsule
-    lw $t0, ADDR_DSPL      # Load display base address
-    lw $t1, ghost_color    # Load ghost color
-    
-    # Draw left half
-    lw $t2, ghost_left_pos
-    add $t3, $t0, $t2
-    sw $t1, 0($t3)
-    
-    # Draw right half
-    lw $t2, ghost_right_pos
-    add $t3, $t0, $t2
-    sw $t1, 0($t3)
-    
-skip_ghost_draw:
-    # Restore return address
-    lw $ra, 0($sp)
-    addi $sp, $sp, 4
-    jr $ra
-
-##############################################################################
-# Function: erase_ghost_capsule (Erase the ghost capsule)
-##############################################################################
-erase_ghost_capsule:
-    # Load the black color
-    lw $t0, color_black   # $t0 = black color (0x000000)
-    
-    # Load the ghost capsule's current positions
-    lw $t1, ghost_left_pos
-    lw $t2, ghost_right_pos
-    
-    # Only erase if positions are not zero
-    beqz $t1, ghost_erase_done
-    beqz $t2, ghost_erase_done
-    
-    # Erase left half
-    lw $t3, ADDR_DSPL
-    add $t4, $t3, $t1
-    sw $t0, 0($t4)
-    
-    # Erase right half
-    add $t4, $t3, $t2
-    sw $t0, 0($t4)
-    
-ghost_erase_done:
-    jr $ra  # Return to caller
-    
-##############################################################################
-# Function: check_for_matches (Remove 4+ in a row of same color)
-##############################################################################
-check_for_matches:
-lw $t0, ADDR_DSPL      # $t0 = base address = 0x10008000
-    addi $sp, $sp, -4
-    sw $ra, 0($sp)
-
-match_loop:
-    li $t9, 0              # $t9 = found_match = 0
-    li $t8, 416            # Start of play area
-    li $t7, 3728           # End of play area
-
-check_match_pixel:
-    add $t1, $t0, $t8      # $t1 = current pixel address
-    lw $t2, 0($t1)         # Load color
-
-    # Skip if black or gray
-    lw $t3, color_black
-    beq $t2, $t3, next_pixel
-    lw $t3, gray_color
-    beq $t2, $t3, next_pixel
-
-        #####################
-    # Horizontal match
-    #####################
-    li $t4, 1              # Match count = 1 (we're on a valid pixel)
-    move $s0, $t8          # Start position (anchor)
-    move $s1, $t8          # Cursor to scan right
-
-check_horiz:
-    addi $s1, $s1, 4       # Move to the next pixel to the right
-
-    # Stop if we cross row boundary
-    li $t6, 256
-    andi $t5, $s1, 0xFC     # current column (in bytes)
-    andi $t7, $t8, 0xFC     # original column
-    sub $t5, $t5, $t7
-    bge $t5, $t6, done_horiz
-
-    # Compare color at $s1 with $t2
-    add $t3, $t0, $s1
-    lw $t6, 0($t3)
-    bne $t6, $t2, done_horiz
-
-    addi $t4, $t4, 1       # Increment match count
-    j check_horiz
-
-done_horiz:
-    li $t6, 4
-    blt $t4, $t6, skip_horiz_clear
-    li $t9, 1              # Found a match
-
-    # Clear from $t8 for $t4 matches
-    li $s2, 0
-clear_horiz_loop:
-    mul $s3, $s2, 4
-    add $s4, $t8, $s3       # pixel offset = t8 + 4*i
-    add $s5, $t0, $s4       # actual address
-    sw $zero, 0($s5)
-    addi $s2, $s2, 1
-    blt $s2, $t4, clear_horiz_loop
-
-
-skip_horiz_clear:
-
-    #####################
-    # Vertical match
-    #####################
-    li $t4, 0
-    move $s0, $t8
-
-check_vert_loop:
-    add $t5, $t0, $s0
-    lw $t6, 0($t5)
-    bne $t6, $t2, end_vert
-    addi $t4, $t4, 1
-    addi $s0, $s0, 128     # Next row
-    li $s1, 3548
-    bgt $s0, $s1, end_vert
-    j check_vert_loop
-
-end_vert:
-    li $s3, 4
-    blt $t4, $s3, skip_vert_clear
-    li $t9, 1              # Found match
-    li $s0, 0
-clear_vert_loop:
-    mul $t5, $s0, 128
-    add $t5, $t5, $t8
-    add $t6, $t0, $t5
-    sw $zero, 0($t6)
-    addi $s0, $s0, 1
-    blt $s0, $t4, clear_vert_loop
-
-skip_vert_clear:
-
-next_pixel:
-    addi $t8, $t8, 4
-    li $t3, 3660
-    blt $t8, $t3, check_match_pixel
-
-    beqz $t9, done_match_loop   # If no matches found, exit
-    jal apply_gravity_to_floating_capsules  # Otherwise, apply gravity and check again
-    j match_loop
-
-done_match_loop:
-    lw $ra, 0($sp)
-    addi $sp, $sp, 4
-    jr $ra
-    
-##############################################################################
-# Function: apply_gravity_to_floating_capsules
-##############################################################################
-apply_gravity_to_floating_capsules:
-    addi $sp, $sp, -4
-    sw $ra, 0($sp)
-
-gravity_loop:
-    li $t7, 0                # change_flag = 0
-    lw $t0, ADDR_DSPL        # $t0 = base display address
-    li $t1, 3456             # start from second-to-last row (row 60)
-    li $t6, 416              # top of playable area
-
-row_loop:
-    li $t2, 0                # column offset
-
-col_loop:
-    add $t3, $t1, $t2        # pixel index = row + col
-    add $t4, $t0, $t3        # pixel address
-    lw $t5, 0($t4)           # color at (row, col)
-
-    # Skip black or gray
-    lw $s1, color_black
-    beq $t5, $s1, skip
-    lw $s2, gray_color
-    beq $t5, $s2, skip
-
-    # Check below
-    addi $t9, $t3, 128       # pixel below
-    li $s0, 3584
-    bgt $t9, $s0, skip       # skip if out of bounds
-
-    add $t8, $t0, $t9
-    lw $s3, 0($t8)
-    bne $s3, $s1, skip       # if pixel below is NOT black, skip
-
-    # Check left
-    li $s4, -4
-    add $s5, $t3, $s4
-    add $s6, $t0, $s5
-    lw $s7, 0($s6)
-    beq $s7, $t5, skip       # if left same color, skip
-
-    # Check right
-    li $s4, 4
-    add $s5, $t3, $s4
-    add $s6, $t0, $s5
-    lw $s7, 0($s6)
-    beq $s7, $t5, skip       # if right same color, skip
-
-    # Move pixel down
-    sw $zero, 0($t4)         # clear current
-    sw $t5, 0($t8)           # move to below
-    li $t7, 1                # set change_flag
-
-skip:
-    addi $t2, $t2, 4
-    li $s1, 256
-    blt $t2, $s1, col_loop
-
-    addi $t1, $t1, -128
-    bge $t1, $t6, row_loop
-
-    bnez $t7, gravity_loop   # Repeat if changes occurred
-
-    lw $ra, 0($sp)
-    addi $sp, $sp, 4
-    jr $ra
-
-
