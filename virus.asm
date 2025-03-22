@@ -31,6 +31,10 @@ color_yellow: .word 0xFFFF00  # Yellow
 color_white: .word 0xFFFFFF	# White 
 color_green: .word 0x39FF14 #Green
 
+color_dark_red:    .word 0x800000  # Dark red for viruses
+color_dark_blue:   .word 0x000080  # Dark blue for viruses
+color_dark_yellow: .word 0x808000  # Dark yellow for viruses
+
 game_over_flag: .word 0       # 0 = game running, 1 = game over
 
 GAME_OVER_ARRAY:
@@ -305,6 +309,986 @@ apply_gravity:
     lw $ra, 0($sp)
     addi $sp, $sp, 4
     jr $ra
+
+    
+##############################################################################
+# Function: generate_new_capsule (Spawn a new capsule at the top)
+##############################################################################
+generate_new_capsule:
+    # Save return address to stack
+    addi $sp, $sp, -4
+    sw $ra, 0($sp)
+
+    # Reset capsule position to the top
+    li $t0, 552  # Reset to top row
+    li $t1, 680
+
+    # Before placing the new capsule, check if the positions are already occupied
+    lw $t2, ADDR_DSPL
+    add $t3, $t2, $t0  # Address of left capsule position
+    add $t4, $t2, $t1  # Address of right capsule position
+    
+    lw $t5, 0($t3)  # Load color at left position
+    lw $t6, 0($t4)  # Load color at right position
+    
+    # If either position is not black (0), game over
+    lw $t7, color_black
+    bne $t5, $t7, spawn_area_blocked
+    bne $t6, $t7, spawn_area_blocked
+    
+    # If we're here, spawn area is clear, proceed with normal spawning
+    sw $t0, capsule_left_pos
+    sw $t1, capsule_right_pos
+    
+    jal generate_capsule_colors	# Generate new random colors for the capsule
+    jal draw_capsule	   	# Draw the new capsule
+
+    # Restore return address
+    lw $ra, 0($sp)
+    addi $sp, $sp, 4
+    jr $ra
+    
+spawn_area_blocked:
+    # Spawn area is blocked, trigger game over
+    lw $ra, 0($sp)
+    addi $sp, $sp, 4
+    j game_over  # Jump to game over routine
+    
+##############################################################################
+# Function: check_for_matches (Remove 4+ in a row of same color)
+##############################################################################
+check_for_matches:
+    lw $t0, ADDR_DSPL      # $t0 = base address = 0x10008000
+    addi $sp, $sp, -4
+    sw $ra, 0($sp)
+
+match_loop:
+    li $t9, 0              # $t9 = found_match = 0
+    li $t8, 416            # Start of play area
+    li $t7, 3728           # End of play area
+
+check_match_pixel:
+    add $t1, $t0, $t8      # $t1 = current pixel address
+    lw $t2, 0($t1)         # Load color
+    
+    # Skip if black or gray (wall)
+    lw $t3, color_black
+    beq $t2, $t3, next_pixel
+    lw $t3, gray_color
+    beq $t2, $t3, next_pixel
+    
+    # Get the color family (ignoring dark/light variation)
+    # First strip the virus/support bits
+    andi $t2, $t2, 0x3FFFFFFF
+
+    # Now identify the color family (red, blue, yellow)
+    lw $t3, color_red
+    lw $t4, color_dark_red
+    beq $t2, $t3, is_red
+    beq $t2, $t4, is_red
+    
+    lw $t3, color_blue
+    lw $t4, color_dark_blue
+    beq $t2, $t3, is_blue
+    beq $t2, $t4, is_blue
+    
+    lw $t3, color_yellow
+    lw $t4, color_dark_yellow
+    beq $t2, $t3, is_yellow
+    beq $t2, $t4, is_yellow
+    
+    j next_pixel  # Not a matching color
+
+is_red:
+    lw $t2, color_red     # Set to regular red for matching
+    j do_matching
+    
+is_blue:
+    lw $t2, color_blue    # Set to regular blue for matching
+    j do_matching
+    
+is_yellow:
+    lw $t2, color_yellow  # Set to regular yellow for matching
+    j do_matching
+
+do_matching:
+    #####################
+    # Horizontal match
+    #####################
+    li $t4, 1              # Match count = 1 (we're on a valid pixel)
+    move $s0, $t8          # Start position (anchor)
+    move $s1, $t8          # Cursor to scan right
+
+check_horiz:
+    addi $s1, $s1, 4       # Move to the next pixel to the right
+
+    # Stop if we cross row boundary
+    li $t6, 256
+    andi $t5, $s1, 0xFC     # current column (in bytes)
+    andi $t7, $t8, 0xFC     # original column
+    sub $t5, $t5, $t7
+    bge $t5, $t6, done_horiz
+
+    # Get color at $s1 and check if it matches our color family
+    add $t3, $t0, $s1
+    lw $t6, 0($t3)
+    
+    # Skip black or wall
+    beqz $t6, done_horiz
+    lw $t7, gray_color
+    beq $t6, $t7, done_horiz
+
+    # Strip virus/support bits
+    andi $t6, $t6, 0x3FFFFFFF
+    
+    # Check color family
+    lw $t7, color_red
+    lw $t5, color_dark_red
+    beq $t6, $t7, check_red
+    beq $t6, $t5, check_red
+    
+    lw $t7, color_blue
+    lw $t5, color_dark_blue
+    beq $t6, $t7, check_blue
+    beq $t6, $t5, check_blue
+    
+    lw $t7, color_yellow
+    lw $t5, color_dark_yellow
+    beq $t6, $t7, check_yellow
+    beq $t6, $t5, check_yellow
+    
+    j done_horiz  # No match
+    
+check_red:
+    lw $t7, color_red
+    bne $t2, $t7, done_horiz  # Not our color family
+    j continue_match
+    
+check_blue:
+    lw $t7, color_blue
+    bne $t2, $t7, done_horiz  # Not our color family
+    j continue_match
+    
+check_yellow:
+    lw $t7, color_yellow
+    bne $t2, $t7, done_horiz  # Not our color family
+    j continue_match
+
+continue_match:
+    addi $t4, $t4, 1       # Increment match count
+    j check_horiz
+
+done_horiz:
+    li $t6, 4
+    blt $t4, $t6, skip_horiz_clear
+    li $t9, 1              # Found a match
+
+    # Clear from $t8 for $t4 matches
+    li $s2, 0
+clear_horiz_loop:
+    mul $s3, $s2, 4
+    add $s4, $t8, $s3       # pixel offset = t8 + 4*i
+    add $s5, $t0, $s4       # actual address
+    sw $zero, 0($s5)        # Clear the matching pixel
+    
+    # Create a special tag to force all pixel above to fall
+    # by physically clearing them and creating "ghost pixels" below
+    move $s6, $s4           # Save current position
+    li $s7, 1               # Counter for rows above
+    
+mark_above_loop:
+    addi $s6, $s6, -128     # Move up one row
+    add $s5, $t0, $s6       # Get address of pixel above
+    lw $t7, 0($s5)          # Get color
+    beqz $t7, next_mark_above # Skip if black
+    lw $t6, gray_color
+    beq $t7, $t6, next_mark_above # Skip if wall
+    
+    # Store the pixel color temporarily
+    move $t3, $t7
+    
+    # Clear the original pixel
+    sw $zero, 0($s5)
+    
+    # Create a new "ghost" pixel just below with the same color but cleared support bit
+    add $s5, $s5, 128        # Move down one row
+    andi $t3, $t3, 0x7FFFFFFF # Clear support bit
+    sw $t3, 0($s5)           # Place unsupported ghost pixel
+    
+next_mark_above:
+    addi $s7, $s7, 1
+    li $t7, 27              # Check up to 27 rows
+    blt $s7, $t7, mark_above_loop
+    
+    # Move to next horizontal pixel
+    addi $s2, $s2, 1
+    blt $s2, $t4, clear_horiz_loop
+
+skip_horiz_clear:
+
+    #####################
+    # Vertical match - Similar update required
+    #####################
+    li $t4, 0
+    move $s0, $t8
+
+check_vert_loop:
+    add $t5, $t0, $s0
+    lw $t6, 0($t5)
+    
+    # Skip if black or wall
+    beqz $t6, end_vert
+    lw $t3, gray_color
+    beq $t6, $t3, end_vert
+    
+    # Strip virus/support bits and check color family
+    andi $t6, $t6, 0x3FFFFFFF
+    
+    # Check color family
+    lw $t3, color_red
+    lw $t7, color_dark_red
+    beq $t6, $t3, check_vert_red
+    beq $t6, $t7, check_vert_red
+    
+    lw $t3, color_blue
+    lw $t7, color_dark_blue
+    beq $t6, $t3, check_vert_blue
+    beq $t6, $t7, check_vert_blue
+    
+    lw $t3, color_yellow
+    lw $t7, color_dark_yellow
+    beq $t6, $t3, check_vert_yellow
+    beq $t6, $t7, check_vert_yellow
+    
+    j end_vert  # No match
+    
+check_vert_red:
+    lw $t7, color_red
+    bne $t2, $t7, end_vert  # Not our color family
+    j continue_vert_match
+    
+check_vert_blue:
+    lw $t7, color_blue
+    bne $t2, $t7, end_vert  # Not our color family
+    j continue_vert_match
+    
+check_vert_yellow:
+    lw $t7, color_yellow
+    bne $t2, $t7, end_vert  # Not our color family
+    j continue_vert_match
+
+continue_vert_match:
+    addi $t4, $t4, 1
+    addi $s0, $s0, 128     # Next row
+    li $s1, 3548
+    bgt $s0, $s1, end_vert
+    j check_vert_loop
+
+end_vert:
+    li $s3, 4
+    blt $t4, $s3, skip_vert_clear
+    li $t9, 1              # Found match
+    li $s0, 0
+clear_vert_loop:
+    mul $t5, $s0, 128
+    add $t5, $t5, $t8
+    add $t6, $t0, $t5
+    sw $zero, 0($t6)
+    addi $s0, $s0, 1
+    blt $s0, $t4, clear_vert_loop
+
+skip_vert_clear:
+
+next_pixel:
+    addi $t8, $t8, 4
+    li $t3, 3660
+    blt $t8, $t3, check_match_pixel
+
+    beqz $t9, done_match_loop   # If no matches found, exit
+    jal apply_gravity_to_floating_capsules  # Otherwise, apply gravity and check again
+    j match_loop
+
+done_match_loop:
+    lw $ra, 0($sp)
+    addi $sp, $sp, 4
+    jr $ra
+    
+##############################################################################
+# Function: apply_gravity_to_floating_capsules
+# Identifies capsules that are floating and applies gravity to them
+##############################################################################
+apply_gravity_to_floating_capsules:
+    addi $sp, $sp, -20
+    sw $ra, 0($sp)
+    sw $s0, 4($sp)
+    sw $s1, 8($sp)
+    sw $s2, 12($sp)
+    sw $s3, 16($sp)
+
+    jal mark_supported_capsules	    # Step 1: Mark all supported capsules
+    jal drop_unsupported_capsules	    # Step 2: Make all unsupported capsules fall
+    
+    # Restore registers and return
+    lw $ra, 0($sp)
+    lw $s0, 4($sp)
+    lw $s1, 8($sp)
+    lw $s2, 12($sp)
+    lw $s3, 16($sp)
+    addi $sp, $sp, 20
+    jr $ra
+
+##############################################################################
+# Function: mark_supported_capsules
+# Marks all capsules that are supported (on bottom row or connected to a supported capsule)
+# Uses the color's alpha channel (MSB) as a temporary marker for "supported" status
+##############################################################################
+mark_supported_capsules:
+    addi $sp, $sp, -4
+    sw $ra, 0($sp)
+    
+    lw $t0, ADDR_DSPL        # $t0 = base display address
+    
+    # First pass: Mark all capsules in the bottom row (row 27) as supported
+    li $t1, 3456             # Start of bottom row (row 27)
+    li $t2, 0                # Column counter
+    
+mark_bottom_row:
+    add $t3, $t1, $t2        # Pixel index = row + col
+    add $t4, $t0, $t3        # Pixel address
+    lw $t5, 0($t4)           # Color at (row, col)
+    
+    beqz $t5, next_bottom_col    # Skip if black
+    
+    # Skip if it's a wall (gray color)
+    lw $t6, gray_color
+    beq $t5, $t6, next_bottom_col
+    
+    # Mark as supported by setting the MSB to 1
+    ori $t5, $t5, 0x80000000
+    sw $t5, 0($t4)
+
+next_bottom_col:
+    addi $t2, $t2, 4         # Next column
+    li $t6, 256              # Width of row in bytes
+    blt $t2, $t6, mark_bottom_row
+    
+    # NEW Mark all viruses as supported regardless of position
+    li $t1, 416              # Start from top of playable area
+    li $t9, 3456             # End at bottom row (exclude bottom row, already done)
+    
+mark_viruses_row_loop:
+    li $t2, 0                # Column counter
+    
+mark_viruses_col_loop:
+    add $t3, $t1, $t2        # Pixel index = row + col
+    add $t4, $t0, $t3        # Pixel address
+    lw $t5, 0($t4)           # Color at current position
+    
+    # Skip if black, wall, or already marked
+    beqz $t5, next_virus_col
+    lw $t6, gray_color
+    beq $t5, $t6, next_virus_col
+    
+    # Check if it's a virus (bit 30 set)
+    andi $t6, $t5, 0x40000000
+    beqz $t6, next_virus_col  # Not a virus
+    
+    # Mark virus as supported
+    ori $t5, $t5, 0x80000000
+    sw $t5, 0($t4)
+    
+next_virus_col:
+    addi $t2, $t2, 4         # Next column
+    li $t6, 256              # Width of row in bytes
+    blt $t2, $t6, mark_viruses_col_loop
+    
+    addi $t1, $t1, 128       # Move down one row
+    blt $t1, $t9, mark_viruses_row_loop
+    
+    # Now propagate the "supported" status upward
+    li $s0, 1                # Changes made flag
+    
+propagate_loop:
+    beqz $s0, done_marking   # If no changes made in the last pass, we're done
+    li $s0, 0                # Reset changes flag
+    
+    li $t1, 3328             # Start from row 26 (second from bottom)
+    li $t9, 416              # Top of playable area
+    
+row_scan_loop:
+    li $t2, 0                # Column counter
+    
+col_scan_loop:
+    add $t3, $t1, $t2        # Pixel index = row + col
+    add $t4, $t0, $t3        # Pixel address
+    lw $t5, 0($t4)           # Color at current position
+    
+    # Skip if black, wall, or already marked
+    beqz $t5, next_scan_col
+    lw $t6, gray_color
+    beq $t5, $t6, next_scan_col
+    andi $t7, $t5, 0x80000000
+    bnez $t7, next_scan_col  # Already marked
+    
+    # Check if any adjacent cell is supported
+    # Check below (most common case)
+    addi $t7, $t3, 128       # Position below
+    add $t8, $t0, $t7
+    lw $t6, 0($t8)
+    andi $t6, $t6, 0x80000000
+    bnez $t6, mark_supported
+    
+    # Check left
+    addi $t7, $t3, -4        # Position to left
+    add $t8, $t0, $t7
+    lw $t6, 0($t8)
+    andi $t6, $t6, 0x80000000
+    bnez $t6, mark_supported
+    
+    # Check right
+    addi $t7, $t3, 4         # Position to right
+    add $t8, $t0, $t7
+    lw $t6, 0($t8)
+    andi $t6, $t6, 0x80000000
+    bnez $t6, mark_supported
+    
+    # Check above (for completeness, though rarely needed)
+    addi $t7, $t3, -128      # Position above
+    add $t8, $t0, $t7
+    lw $t6, 0($t8)
+    andi $t6, $t6, 0x80000000
+    bnez $t6, mark_supported
+    
+    # Not supported by any adjacent cell
+    j next_scan_col
+    
+mark_supported:
+    # Mark current cell as supported
+    ori $t5, $t5, 0x80000000
+    sw $t5, 0($t4)
+    li $s0, 1                # Flag that changes were made
+    
+next_scan_col:
+    addi $t2, $t2, 4         # Next column
+    li $t6, 256              # Width of row in bytes
+    blt $t2, $t6, col_scan_loop
+    
+    addi $t1, $t1, -128      # Move up one row
+    bge $t1, $t9, row_scan_loop
+    
+    # If changes were made, do another pass
+    bnez $s0, propagate_loop
+    
+done_marking:
+    lw $ra, 0($sp)
+    addi $sp, $sp, 4
+    jr $ra
+
+##############################################################################
+# Function: drop_unsupported_capsules
+# Makes all unsupported capsules fall down
+##############################################################################
+drop_unsupported_capsules:
+    addi $sp, $sp, -4
+    sw $ra, 0($sp)
+    
+    lw $t0, ADDR_DSPL        # $t0 = base display address
+    
+    # Repeat until no more changes occur
+    li $s0, 1                # Changes made flag
+    
+drop_loop:
+    beqz $s0, done_dropping  # If no changes were made, we're done
+    li $s0, 0                # Reset changes flag
+    
+    # Scan from second-to-bottom row upward
+    li $t1, 3328             # Start from row 26 (second from bottom)
+    li $t9, 416              # Top of playable area
+    
+drop_row_loop:
+    li $t2, 0                # Column counter
+    
+drop_col_loop:
+    add $t3, $t1, $t2        # Pixel index = row + col
+    add $t4, $t0, $t3        # Pixel address
+    lw $t5, 0($t4)           # Color at current position
+    
+    # Skip if black, wall, supported, or virus
+    beqz $t5, next_drop_col
+    lw $t6, gray_color
+    beq $t5, $t6, next_drop_col
+    andi $t6, $t5, 0x80000000  # Check supported bit
+    bnez $t6, next_drop_col
+    andi $t6, $t5, 0x40000000  # Check virus bit
+    bnez $t6, next_drop_col    # <== NEW LINE: viruses don't fall
+
+    # Check if space below is empty
+    addi $t7, $t3, 128       # Position below
+    add $t8, $t0, $t7
+    lw $t6, 0($t8)
+    bnez $t6, next_drop_col  # Something below, can't drop
+    
+    # Drop the capsule down one row
+    andi $t5, $t5, 0x7FFFFFFF  # Clear the marker bit
+    sw $zero, 0($t4)           # Clear current position
+    sw $t5, 0($t8)             # Move to position below
+    li $s0, 1                  # Flag that changes were made
+    
+next_drop_col:
+    addi $t2, $t2, 4         # Next column
+    li $t6, 256              # Width of row in bytes
+    blt $t2, $t6, drop_col_loop
+    
+    addi $t1, $t1, -128      # Move up one row
+    bge $t1, $t9, drop_row_loop
+    
+    # If changes were made, do another pass
+    bnez $s0, drop_loop
+    
+done_dropping:
+    # Final pass to clear all marker bits from capsules
+    li $t1, 416              # Start from top of playable area
+    li $t9, 3584             # End of playable area
+    
+clear_markers_row_loop:
+    li $t2, 0                # Column counter
+    
+clear_markers_col_loop:
+    add $t3, $t1, $t2        # Pixel index = row + col
+    add $t4, $t0, $t3        # Pixel address
+    lw $t5, 0($t4)           # Color at current position
+    
+    # Skip if black or wall
+    beqz $t5, next_clear_col
+    lw $t6, gray_color
+    beq $t5, $t6, next_clear_col
+    
+    # Clear marker bit
+    andi $t5, $t5, 0x7FFFFFFF
+    sw $t5, 0($t4)
+    
+next_clear_col:
+    addi $t2, $t2, 4         # Next column
+    li $t6, 256              # Width of row in bytes
+    blt $t2, $t6, clear_markers_col_loop
+    
+    addi $t1, $t1, 128       # Move down one row
+    ble $t1, $t9, clear_markers_row_loop
+    
+    lw $ra, 0($sp)
+    addi $sp, $sp, 4
+    jr $ra
+    
+    
+    
+##############################################################################
+# Function: draw_viruses
+# Randomly places viruses of random dark colors inside the bottle
+##############################################################################
+draw_viruses:
+    addi $sp, $sp, -4
+    sw $ra, 0($sp)
+
+    lw $t0, NUM_VIRUSES     # Number of viruses to place
+    li $t1, 0               # Virus counter
+
+virus_loop:
+    beq $t1, $t0, draw_viruses_done  # Done placing all viruses
+
+    # --- Generate Random Row (rows 6–25) ---
+    li $v0, 42
+    li $a0, 0
+    # rows 6 → 26 (inclusive) = 21 total rows
+    li $a1, 12             # 0–20
+    syscall
+    addi $t2, $a0, 12        # → rows 6–26
+    sll $t2, $t2, 7         # ×128 = row offset
+    
+    # --- Generate Random Column (between column 163–177) ---
+    li $v0, 42
+    li $a0, 0
+    li $a1, 15              # 0–14
+    syscall
+    addi $t3, $a0, 163      # 163–177
+    sll $t3, $t3, 2         # Convert to byte offset
+    
+    add $t2, $t2, $t3       # Full display offset = row + column
+
+    lw $t4, ADDR_DSPL
+    add $t5, $t4, $t2       # Address = base + offset
+    lw $t6, 0($t5)
+    bnez $t6, virus_loop    # Retry if not empty
+
+    # Generate random DARK virus color
+    jal generate_dark_virus_color   # Changed to use dark colors
+    ori $v0, $v0, 0x40000000  # Mark with virus bit
+    sw $v0, 0($t5)
+
+    addi $t1, $t1, 1
+    j virus_loop
+
+draw_viruses_done:
+    lw $ra, 0($sp)
+    addi $sp, $sp, 4
+    jr $ra
+ 
+    
+##############################################################################
+# Function to return dark version of a color (for viruses)
+##############################################################################
+generate_dark_virus_color:
+    li $v0, 42                      # syscall 42: generate random number
+    li $a0, 0                       # Random number generator ID 0
+    li $a1, 3                       # Upper bound 3 (exclusive), so 0-2 inclusive
+    syscall
+    
+    beq $a0, 0, return_dark_red      # Check if the random number is 0
+    beq $a0, 1, return_dark_yellow   # Check if the random number is 1
+    beq $a0, 2, return_dark_blue     # Check if the random number is 2
+    j dark_colour_selection_end
+
+return_dark_red:
+    lw $v0, color_dark_red          # Return dark red color
+    j dark_colour_selection_end
+return_dark_yellow:
+    lw $v0, color_dark_yellow       # Return dark yellow color
+    j dark_colour_selection_end
+return_dark_blue:
+    lw $v0, color_dark_blue         # Return dark blue color
+    j dark_colour_selection_end
+dark_colour_selection_end:
+    jr $ra
+    
+
+ 
+##############################################################################
+# Function: draw_text_array - Generic function to draw any text array
+#
+# Parameters:
+#   $a0 - Address of the array
+#   $a1 - Start row
+#   $a2 - Start column
+#   $a3 - Width of the array (columns)
+#   Stack+0 - Height of the array (rows)
+#   Stack+4 - Color to use for drawing
+##############################################################################
+draw_text_array:
+    # Save registers
+    addi $sp, $sp, -20
+    sw $ra, 0($sp)
+    sw $s0, 4($sp)
+    sw $s1, 8($sp)
+    sw $s2, 12($sp)
+    sw $s3, 16($sp)
+    
+    # Load parameters
+    move $s0, $a0              # Array address
+    move $s1, $a1              # Start row
+    move $s2, $a2              # Start column
+    move $s3, $a3              # Width
+    
+    lw $t0, 20($sp)           	# Load height parameter from stack
+    lw $t2, 24($sp)           	# Load color parameter from stack
+    lw $t1, ADDR_DSPL         	# Load display address
+    
+    # Loop through rows
+    li $t3, 0                  # Current row
+draw_array_row_loop:
+    beq $t3, $t0, draw_array_done   # If row == height, we're done
+    
+    # Loop through columns in this row
+    li $t4, 0                  # Current column
+draw_array_col_loop:
+    beq $t4, $s3, draw_array_next_row   # If col == width, go to next row
+    
+    # Calculate array index: row * width + column
+    mul $t5, $t3, $s3          # row * width
+    add $t5, $t5, $t4          # + column
+    sll $t5, $t5, 2            # * 4 (word size)
+    add $t5, $t5, $s0          # + array base address
+    
+    lw $t6, 0($t5)	   	# Load the value from the array
+    
+    beq $t6, $zero, draw_array_skip_pixel	    # If value is -1, draw a pixel
+    
+    # Calculate display position: (start_row + row) * 128 + (start_col + col) * 4
+    add $t7, $s1, $t3          # start_row + row
+    sll $t7, $t7, 7            # * 128 (row width in bytes)
+    add $t8, $s2, $t4          # start_col + col
+    sll $t8, $t8, 2            # * 4 (bytes per pixel)
+    add $t7, $t7, $t8          # Combined offset
+    
+    # Draw the pixel with the specified color
+    add $t7, $t7, $t1          # Add display base address
+    sw $t2, 0($t7)             # Set pixel to specified color
+    
+draw_array_skip_pixel:
+    addi $t4, $t4, 1           # Next column
+    j draw_array_col_loop
+    
+draw_array_next_row:
+    addi $t3, $t3, 1           # Next row
+    j draw_array_row_loop
+    
+draw_array_done:
+    # Restore registers
+    lw $ra, 0($sp)
+    lw $s0, 4($sp)
+    lw $s1, 8($sp)
+    lw $s2, 12($sp)
+    lw $s3, 16($sp)
+    addi $sp, $sp, 20
+    jr $ra
+
+##############################################################################
+# Function: toggle_pause_state
+##############################################################################
+toggle_pause_state:
+    lw $t0, is_paused
+    xori $t0, $t0, 1        # Toggle between 0 and 1
+    sw $t0, is_paused
+    jr $ra
+
+##############################################################################
+# Function: update_pause_display: draw or erase the pause indicator 
+##############################################################################
+update_pause_display:
+    # Save return address
+    addi $sp, $sp, -4
+    sw $ra, 0($sp)
+    
+    # Setup parameters for text display
+    la $a0, PAUSE_ARRAY     # Address of the array
+    li $a1, 1               # Start row
+    li $a2, 28              # Start column (center screen)
+    li $a3, 3               # Width of the array (columns)
+    li $t1, 3               # Height of the array (rows)
+    
+    # Determine color based on pause state
+    lw $t0, is_paused
+    beqz $t0, pause_erase   # If paused=0 (unpaused), use black
+    lw $t2, color_white     # Use white for pause text
+    j pause_draw
+    
+pause_erase:
+    lw $t2, color_black     # Use black to erase
+    
+pause_draw:
+    # Push additional parameters on stack (height and color)
+    addi $sp, $sp, -8
+    sw $t1, 0($sp)          # Height
+    sw $t2, 4($sp)          # Color
+    
+    jal draw_text_array
+    
+    # Pop the pushed parameters
+    addi $sp, $sp, 8
+    
+    # Restore return address and return
+    lw $ra, 0($sp)
+    addi $sp, $sp, 4
+    jr $ra
+        
+##############################################################################
+# Function: game_over - Handles game over state
+##############################################################################
+game_over:
+    # Set game over flag
+    li $t0, 1
+    sw $t0, game_over_flag
+    
+    # Save return address
+    addi $sp, $sp, -4
+    sw $ra, 0($sp)
+    
+    jal clear_screen	    # Clear the screen
+    
+    # Draw game over message
+    jal draw_game_over
+    
+    # Restore return address
+    lw $ra, 0($sp)
+    addi $sp, $sp, 4
+
+game_over_loop:
+    # Check for keyboard input
+    lw $t0, ADDR_KBRD         # Load keyboard address
+    lw $t1, 0($t0)            # Read first word (1 if key is pressed)
+    bne $t1, 1, game_over_loop # If no key is pressed, continue loop
+    
+    lw $t1, 4($t0)            # Load the actual key pressed
+    beq $t1, 0x72, restart_game # 'r' - Restart
+    
+    j game_over_loop	    # Any other key just continues the loop
+
+restart_game: # initialize new game
+    sw $zero, game_over_flag	# Reset game over flag
+    jal clear_screen 		#clear screen
+    j main
+
+##############################################################################
+# Function: draw_game_over - Displays game over message using arrays
+##############################################################################
+draw_game_over:
+    # Save registers
+    addi $sp, $sp, -4
+    sw $ra, 0($sp)
+    
+    lw $t9, color_red	    # Load red color for text
+    lw $t1, color_green 
+    
+    # Draw "GAME OVER" array at row 8, column 22
+    la $a0, GAME_OVER_ARRAY    # Address of the array
+    li $a1, 9                  # Start row
+    li $a2, 6                  # Start column
+    li $a3, 20                 # Width of the array (columns)
+    li $t0, 11                 # Height of the array (rows)
+    
+    # Push additional parameters on stack (height and color)
+    addi $sp, $sp, -8
+    sw $t0, 0($sp)             # Height
+    sw $t9, 4($sp)             # Color (white)
+    
+    jal draw_text_array
+    
+    addi $sp, $sp, 8	    # Pop the pushed parameters
+    
+    # Draw "PRESS R" array at row 24, column 26
+    la $a0, PRESS_R_ARRAY      # Address of the array
+    li $a1, 24                 # Start row
+    li $a2, 12                 # Start column
+    li $a3, 7                  # Width of the array (columns)
+    li $t0, 5                  # Height of the array (rows)
+    
+    # Push additional parameters on stack (height and color)
+    addi $sp, $sp, -8
+    sw $t0, 0($sp)             # Height
+    sw $t1, 4($sp)             # Color (white)
+    
+    jal draw_text_array
+    
+    # Pop the pushed parameters
+    addi $sp, $sp, 8
+    
+    # Restore return address
+    lw $ra, 0($sp)
+    addi $sp, $sp, 4
+    jr $ra
+   
+##############################################################################
+# Function: clear_screen - Clears the entire display
+##############################################################################
+clear_screen:
+    # Save return address
+    addi $sp, $sp, -4
+    sw $ra, 0($sp)
+    
+    lw $t0, ADDR_DSPL      # Load display base address
+    lw $t1, color_black    # Load black color
+    
+    li $t2, 0              # Start from the first pixel
+    li $t3, 4096           # 64x64 pixels = 4096 pixels
+    
+clear_loop:
+    add $t4, $t0, $t2      # Calculate pixel address
+    sw $t1, 0($t4)         # Set pixel to black
+    
+    addi $t2, $t2, 4       # Move to next pixel
+    blt $t2, $t3, clear_loop # Continue until all pixels are cleared
+    
+    # Restore return address
+    lw $ra, 0($sp)
+    addi $sp, $sp, 4
+    jr $ra
+   
+    
+     
+      
+       
+  
+##############################################################################
+# Function: draw_box (Medicine Bottle)
+##############################################################################
+draw_box:
+    # Save return address
+    addi $sp, $sp, -4
+    sw $ra, 0($sp)
+    
+    lw $t0, ADDR_DSPL  # Load display base address
+    lw $t1, gray_color  # Load gray color
+    
+    # Draw Top of Medicine Bottle (648-672) using a loop
+    li $t2, 648  # Start of top row
+    li $t3, 672  # End of top row
+
+top_loop:
+    add $t9, $t0, $t2  # Compute address for top row
+    sw $t1, 0($t9)     # Store gray pixel in top row
+    addi $t2, $t2, 4   # Move right (X+1)
+    ble $t2, $t3, top_loop  # Keep looping until end
+
+    # Draw Top of Medicine Bottle (688-712) using a loop
+    li $t2, 688  # Start of second top row
+    li $t3, 712  # End of second top row
+
+top_loop2:
+    add $t9, $t0, $t2  # Compute address for top row
+    sw $t1, 0($t9)     # Store gray pixel in top row
+    addi $t2, $t2, 4   # Move right (X+1)
+    ble $t2, $t3, top_loop2  # Keep looping until end
+
+    # Draw individual pixels for the corners
+    sw $t1, 544($t0)
+    sw $t1, 416($t0)
+    sw $t1, 560($t0)
+    sw $t1, 432($t0)
+
+    # Draw Sides of the Medicine Bottle
+    li $t2, 648  # Left column start offset
+    li $t3, 712  # Right column start offset
+    li $t4, 3464 # Bottom limit for left side
+    li $t5, 3528 # Bottom limit for right side
+
+side_loop:
+    add $t9, $t0, $t2  # Compute address for left column
+    sw $t1, 0($t9)     # Store gray pixel in left column
+
+    add $s0, $t0, $t3  # Compute address for right column
+    sw $t1, 0($s0)     # Store gray pixel in right column
+
+    addi $t2, $t2, 128  # Move one row down (Y+1)
+    addi $t3, $t3, 128  # Move one row down (Y+1)
+
+    ble $t2, $t4, side_loop  # Keep looping until reaching the bottom
+
+    # Drawing Bottom of the Medicine Bottle (Using a Loop)
+    li $t6, 3592  # Start of bottom row
+    li $t7, 3656  # End of bottom row
+
+bottom_loop:
+    add $t9, $t0, $t6  # Compute address for bottom row
+    sw $t1, 0($t9)     # Store gray pixel in bottom row
+    addi $t6, $t6, 4   # Move right (X+1)
+    ble $t6, $t7, bottom_loop  # Keep looping until reaching the end
+
+    # Restore return address
+    lw $ra, 0($sp)
+    addi $sp, $sp, 4
+    jr $ra  # Return
+    
+
+
+
+
+
+
+
+
+#movement 
+
+
+
+
 
 ##############################################################################
 # Function: move_down (Apply Gravity)
@@ -703,423 +1687,21 @@ rotation_complete:     	# Restore return address
     addi $sp, $sp, 4
     jr $ra
     
-##############################################################################
-# Function: generate_new_capsule (Spawn a new capsule at the top)
-##############################################################################
-generate_new_capsule:
-    # Save return address to stack
-    addi $sp, $sp, -4
-    sw $ra, 0($sp)
-
-    # Reset capsule position to the top
-    li $t0, 552  # Reset to top row
-    li $t1, 680
-
-    # Before placing the new capsule, check if the positions are already occupied
-    lw $t2, ADDR_DSPL
-    add $t3, $t2, $t0  # Address of left capsule position
-    add $t4, $t2, $t1  # Address of right capsule position
     
-    lw $t5, 0($t3)  # Load color at left position
-    lw $t6, 0($t4)  # Load color at right position
     
-    # If either position is not black (0), game over
-    lw $t7, color_black
-    bne $t5, $t7, spawn_area_blocked
-    bne $t6, $t7, spawn_area_blocked
     
-    # If we're here, spawn area is clear, proceed with normal spawning
-    sw $t0, capsule_left_pos
-    sw $t1, capsule_right_pos
     
-    jal generate_capsule_colors	# Generate new random colors for the capsule
-    jal draw_capsule	   	# Draw the new capsule
-
-    # Restore return address
-    lw $ra, 0($sp)
-    addi $sp, $sp, 4
-    jr $ra
     
-spawn_area_blocked:
-    # Spawn area is blocked, trigger game over
-    lw $ra, 0($sp)
-    addi $sp, $sp, 4
-    j game_over  # Jump to game over routine
-    
-##############################################################################
-# Function: check_for_matches (Remove 4+ in a row of same color)
-##############################################################################
-check_for_matches:
-    lw $t0, ADDR_DSPL      # $t0 = base address = 0x10008000
-    addi $sp, $sp, -4
-    sw $ra, 0($sp)
-
-match_loop:
-    li $t9, 0              # $t9 = found_match = 0
-    li $t8, 416            # Start of play area
-    li $t7, 3728           # End of play area
-
-check_match_pixel:
-    add $t1, $t0, $t8      # $t1 = current pixel address
-    lw $t2, 0($t1)         # Load color
-    andi $t2, $t2, 0x3FFFFFFF     # Strip virus + support bits for matching
-
-    # Skip if black or gray
-    lw $t3, color_black
-    beq $t2, $t3, next_pixel
-    lw $t3, gray_color
-    beq $t2, $t3, next_pixel
-
-    #####################
-    # Horizontal match
-    #####################
-    li $t4, 1              # Match count = 1 (we're on a valid pixel)
-    move $s0, $t8          # Start position (anchor)
-    move $s1, $t8          # Cursor to scan right
-
-check_horiz:
-    addi $s1, $s1, 4       # Move to the next pixel to the right
-
-    # Stop if we cross row boundary
-    li $t6, 256
-    andi $t5, $s1, 0xFC     # current column (in bytes)
-    andi $t7, $t8, 0xFC     # original column
-    sub $t5, $t5, $t7
-    bge $t5, $t6, done_horiz
-
-    # Compare color at $s1 with $t2
-    add $t3, $t0, $s1
-    lw $t6, 0($t3)
-    andi $t6, $t6, 0x3FFFFFFF     # Mask off high bits
-    bne $t6, $t2, done_horiz
+#ghost
 
 
-    addi $t4, $t4, 1       # Increment match count
-    j check_horiz
 
-done_horiz:
-    li $t6, 4
-    blt $t4, $t6, skip_horiz_clear
-    li $t9, 1              # Found a match
 
-    # Clear from $t8 for $t4 matches
-    li $s2, 0
-clear_horiz_loop:
-    mul $s3, $s2, 4
-    add $s4, $t8, $s3       # pixel offset = t8 + 4*i
-    add $s5, $t0, $s4       # actual address
-    sw $zero, 0($s5)        # Clear the matching pixel
-    
-    # Create a special tag to force all pixel above to fall
-    # by physically clearing them and creating "ghost pixels" below
-    move $s6, $s4           # Save current position
-    li $s7, 1               # Counter for rows above
-    
-mark_above_loop:
-    addi $s6, $s6, -128     # Move up one row
-    add $s5, $t0, $s6       # Get address of pixel above
-    lw $t7, 0($s5)          # Get color
-    beqz $t7, next_mark_above # Skip if black
-    lw $t6, gray_color
-    beq $t7, $t6, next_mark_above # Skip if wall
-    
-    # Store the pixel color temporarily
-    move $t3, $t7
-    
-    # Clear the original pixel
-    sw $zero, 0($s5)
-    
-    # Create a new "ghost" pixel just below with the same color but cleared support bit
-    add $s5, $s5, 128        # Move down one row
-    andi $t3, $t3, 0x7FFFFFFF # Clear support bit
-    sw $t3, 0($s5)           # Place unsupported ghost pixel
-    
-next_mark_above:
-    addi $s7, $s7, 1
-    li $t7, 27              # Check up to 27 rows
-    blt $s7, $t7, mark_above_loop
-    
-    # Move to next horizontal pixel
-    addi $s2, $s2, 1
-    blt $s2, $t4, clear_horiz_loop
 
-skip_horiz_clear:
 
-    #####################
-    # Vertical match
-    #####################
-    li $t4, 0
-    move $s0, $t8
 
-check_vert_loop:
-    add $t5, $t0, $s0
-    lw $t6, 0($t5)
-    andi $t6, $t6, 0x3FFFFFFF     # Strip bits
-    bne $t6, $t2, end_vert
 
-    addi $t4, $t4, 1
-    addi $s0, $s0, 128     # Next row
-    li $s1, 3548
-    bgt $s0, $s1, end_vert
-    j check_vert_loop
 
-end_vert:
-    li $s3, 4
-    blt $t4, $s3, skip_vert_clear
-    li $t9, 1              # Found match
-    li $s0, 0
-clear_vert_loop:
-    mul $t5, $s0, 128
-    add $t5, $t5, $t8
-    add $t6, $t0, $t5
-    sw $zero, 0($t6)
-    addi $s0, $s0, 1
-    blt $s0, $t4, clear_vert_loop
-
-skip_vert_clear:
-
-next_pixel:
-    addi $t8, $t8, 4
-    li $t3, 3660
-    blt $t8, $t3, check_match_pixel
-
-    beqz $t9, done_match_loop   # If no matches found, exit
-    jal apply_gravity_to_floating_capsules  # Otherwise, apply gravity and check again
-    j match_loop
-
-done_match_loop:
-    lw $ra, 0($sp)
-    addi $sp, $sp, 4
-    jr $ra
-    
-##############################################################################
-# Function: apply_gravity_to_floating_capsules
-# Identifies capsules that are floating and applies gravity to them
-##############################################################################
-apply_gravity_to_floating_capsules:
-    addi $sp, $sp, -20
-    sw $ra, 0($sp)
-    sw $s0, 4($sp)
-    sw $s1, 8($sp)
-    sw $s2, 12($sp)
-    sw $s3, 16($sp)
-
-    jal mark_supported_capsules	    # Step 1: Mark all supported capsules
-    jal drop_unsupported_capsules	    # Step 2: Make all unsupported capsules fall
-    
-    # Restore registers and return
-    lw $ra, 0($sp)
-    lw $s0, 4($sp)
-    lw $s1, 8($sp)
-    lw $s2, 12($sp)
-    lw $s3, 16($sp)
-    addi $sp, $sp, 20
-    jr $ra
-
-##############################################################################
-# Function: mark_supported_capsules
-# Marks all capsules that are supported (on bottom row or connected to a supported capsule)
-# Uses the color's alpha channel (MSB) as a temporary marker for "supported" status
-##############################################################################
-mark_supported_capsules:
-    addi $sp, $sp, -4
-    sw $ra, 0($sp)
-    
-    lw $t0, ADDR_DSPL        # $t0 = base display address
-    
-    # First pass: Mark all capsules in the bottom row (row 27) as supported
-    li $t1, 3456             # Start of bottom row (row 27)
-    li $t2, 0                # Column counter
-    
-mark_bottom_row:
-    add $t3, $t1, $t2        # Pixel index = row + col
-    add $t4, $t0, $t3        # Pixel address
-    lw $t5, 0($t4)           # Color at (row, col)
-    
-    beqz $t5, next_bottom_col	    # Skip if black or already marked
-    
-    # Skip if it's a wall (gray color)
-    lw $t6, gray_color
-    beq $t5, $t6, next_bottom_col
-    
-    # Mark as supported by setting the MSB to 1
-    ori $t5, $t5, 0x80000000
-    sw $t5, 0($t4)
-
-next_bottom_col:
-    addi $t2, $t2, 4         # Next column
-    li $t6, 256              # Width of row in bytes
-    blt $t2, $t6, mark_bottom_row
-    
-    # Now propagate the "supported" status upward
-    li $s0, 1                # Changes made flag
-    
-propagate_loop:
-    beqz $s0, done_marking   # If no changes made in the last pass, we're done
-    li $s0, 0                # Reset changes flag
-    
-    li $t1, 3328             # Start from row 26 (second from bottom)
-    li $t9, 416              # Top of playable area
-    
-row_scan_loop:
-    li $t2, 0                # Column counter
-    
-col_scan_loop:
-    add $t3, $t1, $t2        # Pixel index = row + col
-    add $t4, $t0, $t3        # Pixel address
-    lw $t5, 0($t4)           # Color at current position
-    
-    # Skip if black, wall, or already marked
-    beqz $t5, next_scan_col
-    lw $t6, gray_color
-    beq $t5, $t6, next_scan_col
-    andi $t7, $t5, 0x80000000
-    bnez $t7, next_scan_col  # Already marked
-    
-    # Check if any adjacent cell is supported
-    # Check below (most common case)
-    addi $t7, $t3, 128       # Position below
-    add $t8, $t0, $t7
-    lw $t6, 0($t8)
-    andi $t6, $t6, 0x80000000
-    bnez $t6, mark_supported
-    
-    # Check left
-    addi $t7, $t3, -4        # Position to left
-    add $t8, $t0, $t7
-    lw $t6, 0($t8)
-    andi $t6, $t6, 0x80000000
-    bnez $t6, mark_supported
-    
-    # Check right
-    addi $t7, $t3, 4         # Position to right
-    add $t8, $t0, $t7
-    lw $t6, 0($t8)
-    andi $t6, $t6, 0x80000000
-    bnez $t6, mark_supported
-    
-    # Not supported by any adjacent cell
-    j next_scan_col
-    
-mark_supported:
-    # Mark current cell as supported
-    ori $t5, $t5, 0x80000000
-    sw $t5, 0($t4)
-    li $s0, 1                # Flag that changes were made
-    
-next_scan_col:
-    addi $t2, $t2, 4         # Next column
-    li $t6, 256              # Width of row in bytes
-    blt $t2, $t6, col_scan_loop
-    
-    addi $t1, $t1, -128      # Move up one row
-    bge $t1, $t9, row_scan_loop
-    
-    # If changes were made, do another pass
-    bnez $s0, propagate_loop
-    
-done_marking:
-    lw $ra, 0($sp)
-    addi $sp, $sp, 4
-    jr $ra
-
-##############################################################################
-# Function: drop_unsupported_capsules
-# Makes all unsupported capsules fall down
-##############################################################################
-drop_unsupported_capsules:
-    addi $sp, $sp, -4
-    sw $ra, 0($sp)
-    
-    lw $t0, ADDR_DSPL        # $t0 = base display address
-    
-    # Repeat until no more changes occur
-    li $s0, 1                # Changes made flag
-    
-drop_loop:
-    beqz $s0, done_dropping  # If no changes were made, we're done
-    li $s0, 0                # Reset changes flag
-    
-    # Scan from second-to-bottom row upward
-    li $t1, 3328             # Start from row 26 (second from bottom)
-    li $t9, 416              # Top of playable area
-    
-drop_row_loop:
-    li $t2, 0                # Column counter
-    
-drop_col_loop:
-    add $t3, $t1, $t2        # Pixel index = row + col
-    add $t4, $t0, $t3        # Pixel address
-    lw $t5, 0($t4)           # Color at current position
-    
-    # Skip if black, wall, supported, or virus
-    beqz $t5, next_drop_col
-    lw $t6, gray_color
-    beq $t5, $t6, next_drop_col
-    andi $t6, $t5, 0x80000000  # Check supported bit
-    bnez $t6, next_drop_col
-    andi $t6, $t5, 0x40000000  # Check virus bit
-    bnez $t6, next_drop_col    # <== NEW LINE: viruses don't fall
-
-    # Check if space below is empty
-    addi $t7, $t3, 128       # Position below
-    add $t8, $t0, $t7
-    lw $t6, 0($t8)
-    bnez $t6, next_drop_col  # Something below, can't drop
-    
-    # Drop the capsule down one row
-    andi $t5, $t5, 0x7FFFFFFF  # Clear the marker bit
-    sw $zero, 0($t4)           # Clear current position
-    sw $t5, 0($t8)             # Move to position below
-    li $s0, 1                  # Flag that changes were made
-    
-next_drop_col:
-    addi $t2, $t2, 4         # Next column
-    li $t6, 256              # Width of row in bytes
-    blt $t2, $t6, drop_col_loop
-    
-    addi $t1, $t1, -128      # Move up one row
-    bge $t1, $t9, drop_row_loop
-    
-    # If changes were made, do another pass
-    bnez $s0, drop_loop
-    
-done_dropping:
-    # Final pass to clear all marker bits from capsules
-    li $t1, 416              # Start from top of playable area
-    li $t9, 3584             # End of playable area
-    
-clear_markers_row_loop:
-    li $t2, 0                # Column counter
-    
-clear_markers_col_loop:
-    add $t3, $t1, $t2        # Pixel index = row + col
-    add $t4, $t0, $t3        # Pixel address
-    lw $t5, 0($t4)           # Color at current position
-    
-    # Skip if black or wall
-    beqz $t5, next_clear_col
-    lw $t6, gray_color
-    beq $t5, $t6, next_clear_col
-    
-    # Clear marker bit
-    andi $t5, $t5, 0x7FFFFFFF
-    sw $t5, 0($t4)
-    
-next_clear_col:
-    addi $t2, $t2, 4         # Next column
-    li $t6, 256              # Width of row in bytes
-    blt $t2, $t6, clear_markers_col_loop
-    
-    addi $t1, $t1, 128       # Move down one row
-    ble $t1, $t9, clear_markers_row_loop
-    
-    lw $ra, 0($sp)
-    addi $sp, $sp, 4
-    jr $ra
-    
-    
- 
 ##############################################################################
 # Function: calculate_ghost_position (Calculate where capsule would land)
 ##############################################################################
@@ -1298,368 +1880,3 @@ ghost_erase_done:
     jr $ra  # Return to caller
     
     
-    
-    
-##############################################################################
-# Function: draw_text_array - Generic function to draw any text array
-#
-# Parameters:
-#   $a0 - Address of the array
-#   $a1 - Start row
-#   $a2 - Start column
-#   $a3 - Width of the array (columns)
-#   Stack+0 - Height of the array (rows)
-#   Stack+4 - Color to use for drawing
-##############################################################################
-draw_text_array:
-    # Save registers
-    addi $sp, $sp, -20
-    sw $ra, 0($sp)
-    sw $s0, 4($sp)
-    sw $s1, 8($sp)
-    sw $s2, 12($sp)
-    sw $s3, 16($sp)
-    
-    # Load parameters
-    move $s0, $a0              # Array address
-    move $s1, $a1              # Start row
-    move $s2, $a2              # Start column
-    move $s3, $a3              # Width
-    
-    lw $t0, 20($sp)           	# Load height parameter from stack
-    lw $t2, 24($sp)           	# Load color parameter from stack
-    lw $t1, ADDR_DSPL         	# Load display address
-    
-    # Loop through rows
-    li $t3, 0                  # Current row
-draw_array_row_loop:
-    beq $t3, $t0, draw_array_done   # If row == height, we're done
-    
-    # Loop through columns in this row
-    li $t4, 0                  # Current column
-draw_array_col_loop:
-    beq $t4, $s3, draw_array_next_row   # If col == width, go to next row
-    
-    # Calculate array index: row * width + column
-    mul $t5, $t3, $s3          # row * width
-    add $t5, $t5, $t4          # + column
-    sll $t5, $t5, 2            # * 4 (word size)
-    add $t5, $t5, $s0          # + array base address
-    
-    lw $t6, 0($t5)	   	# Load the value from the array
-    
-    beq $t6, $zero, draw_array_skip_pixel	    # If value is -1, draw a pixel
-    
-    # Calculate display position: (start_row + row) * 128 + (start_col + col) * 4
-    add $t7, $s1, $t3          # start_row + row
-    sll $t7, $t7, 7            # * 128 (row width in bytes)
-    add $t8, $s2, $t4          # start_col + col
-    sll $t8, $t8, 2            # * 4 (bytes per pixel)
-    add $t7, $t7, $t8          # Combined offset
-    
-    # Draw the pixel with the specified color
-    add $t7, $t7, $t1          # Add display base address
-    sw $t2, 0($t7)             # Set pixel to specified color
-    
-draw_array_skip_pixel:
-    addi $t4, $t4, 1           # Next column
-    j draw_array_col_loop
-    
-draw_array_next_row:
-    addi $t3, $t3, 1           # Next row
-    j draw_array_row_loop
-    
-draw_array_done:
-    # Restore registers
-    lw $ra, 0($sp)
-    lw $s0, 4($sp)
-    lw $s1, 8($sp)
-    lw $s2, 12($sp)
-    lw $s3, 16($sp)
-    addi $sp, $sp, 20
-    jr $ra
-
-##############################################################################
-# Function: toggle_pause_state
-##############################################################################
-toggle_pause_state:
-    lw $t0, is_paused
-    xori $t0, $t0, 1        # Toggle between 0 and 1
-    sw $t0, is_paused
-    jr $ra
-
-##############################################################################
-# Function: update_pause_display: draw or erase the pause indicator 
-##############################################################################
-update_pause_display:
-    # Save return address
-    addi $sp, $sp, -4
-    sw $ra, 0($sp)
-    
-    # Setup parameters for text display
-    la $a0, PAUSE_ARRAY     # Address of the array
-    li $a1, 1               # Start row
-    li $a2, 28              # Start column (center screen)
-    li $a3, 3               # Width of the array (columns)
-    li $t1, 3               # Height of the array (rows)
-    
-    # Determine color based on pause state
-    lw $t0, is_paused
-    beqz $t0, pause_erase   # If paused=0 (unpaused), use black
-    lw $t2, color_white     # Use white for pause text
-    j pause_draw
-    
-pause_erase:
-    lw $t2, color_black     # Use black to erase
-    
-pause_draw:
-    # Push additional parameters on stack (height and color)
-    addi $sp, $sp, -8
-    sw $t1, 0($sp)          # Height
-    sw $t2, 4($sp)          # Color
-    
-    jal draw_text_array
-    
-    # Pop the pushed parameters
-    addi $sp, $sp, 8
-    
-    # Restore return address and return
-    lw $ra, 0($sp)
-    addi $sp, $sp, 4
-    jr $ra
-        
-##############################################################################
-# Function: game_over - Handles game over state
-##############################################################################
-game_over:
-    # Set game over flag
-    li $t0, 1
-    sw $t0, game_over_flag
-    
-    # Save return address
-    addi $sp, $sp, -4
-    sw $ra, 0($sp)
-    
-    jal clear_screen	    # Clear the screen
-    
-    # Draw game over message
-    jal draw_game_over
-    
-    # Restore return address
-    lw $ra, 0($sp)
-    addi $sp, $sp, 4
-
-game_over_loop:
-    # Check for keyboard input
-    lw $t0, ADDR_KBRD         # Load keyboard address
-    lw $t1, 0($t0)            # Read first word (1 if key is pressed)
-    bne $t1, 1, game_over_loop # If no key is pressed, continue loop
-    
-    lw $t1, 4($t0)            # Load the actual key pressed
-    beq $t1, 0x72, restart_game # 'r' - Restart
-    
-    j game_over_loop	    # Any other key just continues the loop
-
-restart_game: # initialize new game
-    sw $zero, game_over_flag	# Reset game over flag
-    jal clear_screen 		#clear screen
-    j main
-
-##############################################################################
-# Function: draw_game_over - Displays game over message using arrays
-##############################################################################
-draw_game_over:
-    # Save registers
-    addi $sp, $sp, -4
-    sw $ra, 0($sp)
-    
-    lw $t9, color_red	    # Load red color for text
-    lw $t1, color_green 
-    
-    # Draw "GAME OVER" array at row 8, column 22
-    la $a0, GAME_OVER_ARRAY    # Address of the array
-    li $a1, 9                  # Start row
-    li $a2, 6                  # Start column
-    li $a3, 20                 # Width of the array (columns)
-    li $t0, 11                 # Height of the array (rows)
-    
-    # Push additional parameters on stack (height and color)
-    addi $sp, $sp, -8
-    sw $t0, 0($sp)             # Height
-    sw $t9, 4($sp)             # Color (white)
-    
-    jal draw_text_array
-    
-    addi $sp, $sp, 8	    # Pop the pushed parameters
-    
-    # Draw "PRESS R" array at row 24, column 26
-    la $a0, PRESS_R_ARRAY      # Address of the array
-    li $a1, 24                 # Start row
-    li $a2, 12                 # Start column
-    li $a3, 7                  # Width of the array (columns)
-    li $t0, 5                  # Height of the array (rows)
-    
-    # Push additional parameters on stack (height and color)
-    addi $sp, $sp, -8
-    sw $t0, 0($sp)             # Height
-    sw $t1, 4($sp)             # Color (white)
-    
-    jal draw_text_array
-    
-    # Pop the pushed parameters
-    addi $sp, $sp, 8
-    
-    # Restore return address
-    lw $ra, 0($sp)
-    addi $sp, $sp, 4
-    jr $ra
-   
-##############################################################################
-# Function: clear_screen - Clears the entire display
-##############################################################################
-clear_screen:
-    # Save return address
-    addi $sp, $sp, -4
-    sw $ra, 0($sp)
-    
-    lw $t0, ADDR_DSPL      # Load display base address
-    lw $t1, color_black    # Load black color
-    
-    li $t2, 0              # Start from the first pixel
-    li $t3, 4096           # 64x64 pixels = 4096 pixels
-    
-clear_loop:
-    add $t4, $t0, $t2      # Calculate pixel address
-    sw $t1, 0($t4)         # Set pixel to black
-    
-    addi $t2, $t2, 4       # Move to next pixel
-    blt $t2, $t3, clear_loop # Continue until all pixels are cleared
-    
-    # Restore return address
-    lw $ra, 0($sp)
-    addi $sp, $sp, 4
-    jr $ra
-    
-##############################################################################
-# Function: draw_box (Medicine Bottle)
-##############################################################################
-draw_box:
-    # Save return address
-    addi $sp, $sp, -4
-    sw $ra, 0($sp)
-    
-    lw $t0, ADDR_DSPL  # Load display base address
-    lw $t1, gray_color  # Load gray color
-    
-    # Draw Top of Medicine Bottle (648-672) using a loop
-    li $t2, 648  # Start of top row
-    li $t3, 672  # End of top row
-
-top_loop:
-    add $t9, $t0, $t2  # Compute address for top row
-    sw $t1, 0($t9)     # Store gray pixel in top row
-    addi $t2, $t2, 4   # Move right (X+1)
-    ble $t2, $t3, top_loop  # Keep looping until end
-
-    # Draw Top of Medicine Bottle (688-712) using a loop
-    li $t2, 688  # Start of second top row
-    li $t3, 712  # End of second top row
-
-top_loop2:
-    add $t9, $t0, $t2  # Compute address for top row
-    sw $t1, 0($t9)     # Store gray pixel in top row
-    addi $t2, $t2, 4   # Move right (X+1)
-    ble $t2, $t3, top_loop2  # Keep looping until end
-
-    # Draw individual pixels for the corners
-    sw $t1, 544($t0)
-    sw $t1, 416($t0)
-    sw $t1, 560($t0)
-    sw $t1, 432($t0)
-
-    # Draw Sides of the Medicine Bottle
-    li $t2, 648  # Left column start offset
-    li $t3, 712  # Right column start offset
-    li $t4, 3464 # Bottom limit for left side
-    li $t5, 3528 # Bottom limit for right side
-
-side_loop:
-    add $t9, $t0, $t2  # Compute address for left column
-    sw $t1, 0($t9)     # Store gray pixel in left column
-
-    add $s0, $t0, $t3  # Compute address for right column
-    sw $t1, 0($s0)     # Store gray pixel in right column
-
-    addi $t2, $t2, 128  # Move one row down (Y+1)
-    addi $t3, $t3, 128  # Move one row down (Y+1)
-
-    ble $t2, $t4, side_loop  # Keep looping until reaching the bottom
-
-    # Drawing Bottom of the Medicine Bottle (Using a Loop)
-    li $t6, 3592  # Start of bottom row
-    li $t7, 3656  # End of bottom row
-
-bottom_loop:
-    add $t9, $t0, $t6  # Compute address for bottom row
-    sw $t1, 0($t9)     # Store gray pixel in bottom row
-    addi $t6, $t6, 4   # Move right (X+1)
-    ble $t6, $t7, bottom_loop  # Keep looping until reaching the end
-
-    # Restore return address
-    lw $ra, 0($sp)
-    addi $sp, $sp, 4
-    jr $ra  # Return
-    
-##############################################################################
-# Function: draw_viruses
-# Randomly places viruses of random colors inside the bottle
-##############################################################################
-draw_viruses:
-    addi $sp, $sp, -4
-    sw $ra, 0($sp)
-
-    lw $t0, NUM_VIRUSES     # Number of viruses to place
-    li $t1, 0               # Virus counter
-
-virus_loop:
-    beq $t1, $t0, draw_viruses_done  # Done placing all viruses
-
-    # --- Generate Random Row (rows 6–25) ---
-    li $v0, 42
-    li $a0, 0
-    # rows 6 → 26 (inclusive) = 21 total rows
-    li $a1, 19              # 0–20
-    syscall
-    addi $t2, $a0, 6        # → rows 6–26
-    sll $t2, $t2, 7         # ×128 = row offset
-    
-
-    # --- Generate Random Column (between column 163–177) ---
-    li $v0, 42
-    li $a0, 0
-    li $a1, 15              # 0–14
-    syscall
-    addi $t3, $a0, 163      # 163–177
-    sll $t3, $t3, 2         # Convert to byte offset
-    
-
-    add $t2, $t2, $t3       # Full display offset = row + column
-
-    lw $t4, ADDR_DSPL
-    add $t5, $t4, $t2       # Address = base + offset
-    lw $t6, 0($t5)
-    bnez $t6, virus_loop    # Retry if not empty
-
-    # Generate random virus color
-    jal generate_random_color
-    ori $v0, $v0, 0x40000000  # Mark with virus bit
-    sw $v0, 0($t5)
-
-    addi $t1, $t1, 1
-    j virus_loop
-
-
-draw_viruses_done:
-    lw $ra, 0($sp)
-    addi $sp, $sp, 4
-    jr $ra
