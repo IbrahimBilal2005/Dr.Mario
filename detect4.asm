@@ -699,7 +699,7 @@ rotation_complete:     	# Restore return address
     lw $ra, 0($sp)
     addi $sp, $sp, 4
     jr $ra
-
+    
 ##############################################################################
 # Function: generate_new_capsule (Spawn a new capsule at the top)
 ##############################################################################
@@ -712,16 +712,36 @@ generate_new_capsule:
     li $t0, 552  # Reset to top row
     li $t1, 680
 
+    # Before placing the new capsule, check if the positions are already occupied
+    lw $t2, ADDR_DSPL
+    add $t3, $t2, $t0  # Address of left capsule position
+    add $t4, $t2, $t1  # Address of right capsule position
+    
+    lw $t5, 0($t3)  # Load color at left position
+    lw $t6, 0($t4)  # Load color at right position
+    
+    # If either position is not black (0), game over
+    lw $t7, color_black
+    bne $t5, $t7, spawn_area_blocked
+    bne $t6, $t7, spawn_area_blocked
+    
+    # If we're here, spawn area is clear, proceed with normal spawning
     sw $t0, capsule_left_pos
     sw $t1, capsule_right_pos
     
     jal generate_capsule_colors	# Generate new random colors for the capsule
-    jal draw_capsule	   		# Draw the new capsule
+    jal draw_capsule	   	# Draw the new capsule
 
     # Restore return address
     lw $ra, 0($sp)
     addi $sp, $sp, 4
     jr $ra
+    
+spawn_area_blocked:
+    # Spawn area is blocked, trigger game over
+    lw $ra, 0($sp)
+    addi $sp, $sp, 4
+    j game_over  # Jump to game over routine
     
 ##############################################################################
 # Function: check_for_matches (Remove 4+ in a row of same color)
