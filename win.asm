@@ -1382,27 +1382,21 @@ move_down_continue:
     j game_loop            # Continue looping
 
 stop_moving:    
-        jal erase_ghost_capsule	# Erase ghost capsule when capsule stops
-    jal draw_capsule		# Draw capsule in final position
-
+    jal erase_ghost_capsule
+    jal draw_capsule
     # Reset ghost positions
     li $t0, 0
     sw $t0, ghost_left_pos
     sw $t0, ghost_right_pos
-
     jal check_for_matches
-
-    # AFTER all gravity settles, check for virus win
+    
+    # Check for virus win and only generate new capsule if not win
     jal check_virus_win_condition
-
+    bnez $v0, game_loop  # If we got a win (return 1), skip to game loop
+    
     # ONLY generate a new capsule if it wasn't a win
-    # In check_virus_win_condition, add a return flag to indicate win or not
-    # But for now, just trust game_win resets state, so we only continue if game not over
-
-    # Read the game over flag, skip spawning if non-zero
     lw $t1, game_over_flag
     bnez $t1, game_loop  # If game over triggered, stop here
-
     jal generate_new_capsule
     j game_loop
 
@@ -1932,9 +1926,12 @@ next_row:
 
 win_found_no_viruses:
     jal game_win
+    li $v0, 1  # Set return value to 1 (win)
     j check_virus_done
 
 win_not_yet:
+    li $v0, 0  # Set return value to 0 (no win)
+    
 check_virus_done:
     lw $ra, 0($sp)
     addi $sp, $sp, 4
