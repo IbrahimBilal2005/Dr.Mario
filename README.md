@@ -11,6 +11,7 @@ Completed:
 4. (6) Pause
 5. (8) Ghost capsule
 6. (7) Levels 
+7. (14) Draw and remove viruses as they appear and disapear in the game
 
 Planned: 
 
