@@ -1002,10 +1002,10 @@ next_pixel:
     j match_loop
 
 done_match_loop:
-    jal count_viruses_by_color
     lw $ra, 0($sp)
     addi $sp, $sp, 4
     jr $ra
+    
 ##############################################################################
 # Function: apply_gravity_to_floating_capsules
 # Identifies capsules that are floating and applies gravity to them
@@ -1792,19 +1792,14 @@ stop_moving:
     syscall
 
     jal check_for_matches
-    
+
     jal check_virus_win_condition     # Check for virus win and only generate new capsule if not win
     bnez $v0, game_loop  # If we got a win (return 1), skip to game loop
     
+    jal count_viruses_by_color
     # ONLY generate a new capsule if it wasn't a win
     lw $t1, game_over_flag
     bnez $t1, game_loop  # If game over triggered, stop here
-    
-    li $t1, 0              # Row position
-    li $t2, 24             # Column position
-    li $t3, 7              # Width
-    li $t4, 7  
-    jal clear_indicator_area
     
     # Erase current next capsule before generating new one
     jal erase_next_capsule
@@ -2484,8 +2479,6 @@ update_virus_indicators:
     li $t4, 30               # Height
     jal clear_indicator_area
     
-   
-
     # --- Now draw only the indicators that should be visible ---
     
     # Draw red virus indicator only if viruses remain
