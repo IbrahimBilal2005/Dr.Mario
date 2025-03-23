@@ -75,30 +75,14 @@ PAUSE_ARRAY:
    
 
 # Small virus icons for the status display (5x5 pixel arrays)
-# 0 = blank space, -1 = pixel to draw
-RED_VIRUS_ARRAY:
+VIRUS_ARRAY:
     .word
-    0, -1, -1, -1, 0,     # Small red virus representation
+    0, -1, -1, -1, 0,     # Small virus representation
     -1, -1, 0, -1, -1,
     -1, 0, -1, 0, -1,
     -1, -1, -1, -1, -1,
     0, -1, 0, -1, 0
 
-BLUE_VIRUS_ARRAY:
-    .word
-    0, -1, -1, -1, 0,     # Small blue virus representation
-    -1, -1, 0, -1, -1,
-    -1, 0, -1, 0, -1,
-    -1, -1, -1, -1, -1,
-    0, -1, 0, -1, 0
-
-YELLOW_VIRUS_ARRAY:
-    .word
-    0, -1, -1, -1, 0,     # Small yellow virus representation
-    -1, -1, 0, -1, -1,
-    -1, 0, -1, 0, -1,
-    -1, -1, -1, -1, -1,
-    0, -1, 0, -1, 0
     
 ##############################################################################
 # Mutable Data
@@ -2122,7 +2106,7 @@ update_virus_indicators:
     lw $t1, red_virus_count
     beqz $t1, skip_red_virus
     
-    la $a0, RED_VIRUS_ARRAY
+    la $a0, VIRUS_ARRAY
     li $a1, 7               # Row position
     li $a2, 25              # Column position
     li $a3, 5               # Width
@@ -2142,7 +2126,7 @@ skip_red_virus:
     lw $t1, blue_virus_count
     beqz $t1, skip_blue_virus
     
-    la $a0, BLUE_VIRUS_ARRAY
+    la $a0, VIRUS_ARRAY
     li $a1, 14              # Row position
     li $a2, 25              # Column position
     li $a3, 5               # Width
@@ -2162,7 +2146,7 @@ skip_blue_virus:
     lw $t1, yellow_virus_count
     beqz $t1, skip_yellow_virus
     
-    la $a0, YELLOW_VIRUS_ARRAY
+    la $a0, VIRUS_ARRAY
     li $a1, 21              # Row position
     li $a2, 25              # Column position
     li $a3, 5               # Width
