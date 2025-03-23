@@ -11,22 +11,10 @@ Completed:
 4. (6) Pause
 5. (8) Ghost capsule
 6. (7) Levels 
-7. (14) Draw and remove viruses as they appear and disapear in the game
+7. (14) Viruse Indicators on the side
+8. (11) Preview next capsule
+9. (5) Sound effects
 
-Planned: 
-
-(3) Easy Medium and Hard level selection that starts virus count/gravity at specific levels
-    - Covered by home screen form hard features
-
-(5) Sound effects
-
-(11) Panel showing next capsules
-    - Shouldnt be too hard since we already have capsule generation logic, just need to start off generating 5, then maintain an order and keep generating the last one in the sequence each iteration
-
-
-(if we just do 2 of the above planned features we dont need any hard feature. If we make a menu that lets users pick easy medium or hard, were done the project)
 
 Hard Features
-
-Planned: Home screen
-Planned: Dr Mario Music
+1. (5) Dr Mario Music
