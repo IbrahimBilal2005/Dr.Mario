@@ -2373,12 +2373,9 @@ store_new_speed:
     # Clear screen and redraw bottle
     jal clear_screen
     jal draw_box
-
-    # Spawn viruses again
-    jal draw_viruses
-
-    # Reset capsule state
-    jal generate_new_capsule
+    jal draw_viruses                # Spawn viruses again
+    jal count_viruses_by_color      #count viruses
+    jal generate_new_capsule        # Reset capsule state
 
     # Restore return address
     lw $ra, 0($sp)
@@ -2590,6 +2587,7 @@ clear_area_done:
     lw $s1, 4($sp)
     lw $s2, 8($sp)
     lw $s3, 12($sp)
+    
     addi $sp, $sp, 16
     jr $ra
     
