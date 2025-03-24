@@ -1,0 +1,160 @@
+\documentclass{article}
+
+%% Page Margins %%
+\usepackage{geometry}
+\geometry{
+    top = 0.75in,
+    bottom = 0.75in,
+    right = 0.75in,
+    left = 0.75in,
+}
+
+\usepackage{amsmath}
+\usepackage{graphicx}
+\usepackage{parskip}
+
+\title{Assembly Project: Dr Mario}
+
+% TODO: Enter your name
+\author{Ahnaf Keenan Ardhito & Ibrahim Bilal}
+
+\begin{document}
+\maketitle
+
+\section{Instruction and Summary}
+
+\begin{enumerate}
+
+    \item Which milestones were implemented? 
+    \begin{enumerate}
+        \item Milestone 1
+        \item Milestone 2
+        \item Milestone 3
+        \item Milestone 4 and 5 :
+        \begin{enumerate}
+            \item Easy:
+            \begin{enumerate}
+                \item Implement gravity, so that each second that passes will automatically move the capsule down one
+row.
+                \item Assuming that gravity has been implemented, have the speed of gravity increase gradually over
+time, or after the player completes a certain number of rows
+                \item When the player has reached the ”game over” condition, display a Game Over screen in pixels
+on the screen. Restart the game if a “retry” option is chosen by the player. Retry should start a
+brand new game (no state is retained from previous attempts).
+                \item Add sound effects for different conditions like rotating and dropping capsules, removing a row of
+squares, for beating a level and the game over condition.
+                \item If the player presses the keyboard key p, display a ”Paused” message on screen until they press
+p a second time, at which point the original game will resume.
+                \item Add levels to the game that trigger after the player eliminates all of the viruses in the current level.
+The next level should be more difficult than the previous one (i.e. speed and number of viruses).
+Make sure that the increased difficulty is different from the Easy/Medium/Hard difficulty in some
+way (the same level can’t count for two features).
+                \item Show an outline where the capsule will end up if you drop it.
+                \item Have a panel on the side that displays a preview of the next capsule that will appear.
+                \item Draw Dr. Mario and the viruses on the side panels, as in Figure 2.1
+                \item Assuming you’ve drawn the viruses from the previous feature, have each virus image disappear
+as the viruses of that colour are eliminated from the playing field (play the game if you’re unclear
+on what this means).
+            \end{enumerate}
+          \item Hard:
+          \begin{enumerate}
+              \item Play the Dr. Mario’s theme music in the background while playing the game.
+          \end{enumerate}
+        \end{enumerate}
+    \end{enumerate}
+
+    \item How to view the game:
+    % TODO: specify the pixes/unit, width and height of 
+    %       your game, etc.  NOTE: list these details in
+    %       the header of your breakout.asm file too!
+    
+    \begin{enumerate}
+
+    \item Unit width in pixels:       2
+    \item Unit height in pixels:      2
+    \item Display width in pixels:    64
+    \item Display height in pixels:   64
+    \item Base Address for Display:   0x10008000
+
+
+    \end{enumerate}
+
+    
+
+\begin{figure}[ht!]
+    \centering
+    \includegraphics[width=0.7\textwidth]{insturctions.jpeg}
+    \caption{How the game looks running on Saturn}
+    \label{Instructions}
+\end{figure}
+
+\item Game Summary:
+\begin{itemize}
+    \item This game is our attempt on recreating the famous classic Dr. Mario game, implemented entirely in MIPS assembly.
+    \item The player controls falling capsules to align matching colors and eliminate viruses.
+    \item Controls are as follows:
+    \begin{itemize}
+        \item \textbf{W} - Rotate capsule
+        \item \textbf{A} - Move capsule left
+        \item \textbf{D} - Move capsule right
+        \item \textbf{S} - Instantly drop capsule
+        \item \textbf{P} - Pause the game
+        \item \textbf{Q} - Quit the game
+        \item \textbf{R} - Reset the game
+    \end{itemize}
+    \item We successfully implemented the original "Fever" background music from Dr. Mario to enhance the gameplay experience.
+    \item The game features infinite level progression — each new level adds one virus and increases the capsule fall speed (gravity).
+    \item The game continues until the player loses, which occurs when capsules block the neck of the medicine bottle (top of the play area).
+\end{itemize}
+
+    
+\end{enumerate}
+
+\section{Attribution Table}
+% TODO: If you worked in partners, tell us who was 
+%       responsible for which features. Some reweighting 
+%       might be possible in cases where one group member
+%       deserves extra credit for the work they put in.
+
+\begin{center}
+\renewcommand{\arraystretch}{1.5} 
+\begin{tabular}{| p{7cm} | p{7cm} |}
+\hline
+\textbf{Ahnaf Keenan A. 1010236219} & \textbf{Ibrahim Bilal, 1010437270} \\
+\hline
+Implemented drawing the medicine bottle & Generated capsules with randomized colors \\
+\hline
+Implemented left-right movement and gravity & Enhanced movement and added rotation (including instant drop) \\
+\hline
+Implemented match checking (4+ same-color in a row) & Applied gravity only to unsupported capsules after clearing \\
+\hline
+Implemented virus drawing with randomized rows and columns spawn points & Improved virus rendering using color variation + normalization for match detection \\
+\hline
+Implemented win detection (progresses to next level when viruses are cleared) & Implemented Pause and Game Over screens \\
+\hline
+Added background theme song & Implemented virus display in the sidebar \\
+\hline
+Added sound effects to user movements (rotate, place down, win) & Implemented capsule preview before it drops \\
+\hline
+\end{tabular}
+\end{center}
+
+
+\section*{Theme Song Integration}
+
+One of the most challenging and time-consuming parts of the extra features of our project was the creation and integration of the Dr. Mario theme song and sound effects. Rather than using a pre-existing MIDI file or music engine, we chose to manually transcribe the song into MIPS Assembly, note by note, bar by bar.
+
+This required:
+\begin{itemize}
+    \item Listening closely to the original theme and identifying each note's pitch and rhythm.
+    \item Translating each note into a four-field representation: \texttt{<Pitch, Duration, Instrument, Volume>}.
+    \item Matching the tempo and structure to fit the pace of the game while maintaining musical accuracy.
+    \item Adding bass lines and harmony using a second instrument channel, further enhancing the audio quality.
+    \item Ensuring that the music playback was synchronized with the game loop using carefully tuned delays and counters.
+\end{itemize}
+
+We implemented a tick-based playback system using a dedicated timer that triggers a note read and playback syscall every fixed number of frames. The song data is stored as a series of \texttt{.word} instructions, and a note index is incremented each time a new note is played. Volume, instrument, and pitch changes are all dynamically handled. Nonetheless, this feature gives the game a polished and nostalgic touch, adding to its charm and authenticity. It's one of the components we're most proud of in this project.
+
+
+
+\end{document}
