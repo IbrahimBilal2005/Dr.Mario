@@ -31,14 +31,15 @@ color_yellow: .word 0xFFFF00  # Yellow
 color_white: .word 0xFFFFFF	# White 
 color_green: .word 0x39FF14 #Green
 
+#colours for viruses
 color_dark_red:    .word 0x800000  # Dark red for viruses
 color_dark_blue:   .word 0x000080  # Dark blue for viruses
 color_dark_yellow: .word 0x808000  # Dark yellow for viruses
 
+# colours for virus indicators 
 color_dark_red_in:    .word 0x800001  # Dark red for viruses
 color_dark_blue_in:   .word 0x000081  # Dark blue for viruses
 color_dark_yellow_in: .word 0x808001  # Dark yellow for viruses
-
 
 GAME_OVER_ARRAY:
     .word
