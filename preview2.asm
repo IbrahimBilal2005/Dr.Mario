@@ -313,6 +313,7 @@ music_tick_speed:   .word 12       # Adjust this to change tempo (1 = every fram
 
 game_over_flag: .word 0       # 0 = game running, 1 = game over
 is_paused:      .word 0       # 0 = not paused, 1 = paused
+play_music: .word 1
 level: .word 1
 fall_delay:    .word 40      	# Delay for gravity (milliseconds) 
 move_delay:    .word 12       	# Delay for controls (milliseconds)
@@ -799,7 +800,7 @@ check_horiz:
     addi $s1, $s1, 4       # Move to the next pixel to the right
 
     # Stop if we cross row boundary
-    li $t6, 80
+    li $t6, 256
     andi $t5, $s1, 0xFC     # current column (in bytes)
     andi $t7, $t8, 0xFC     # original column
     sub $t5, $t5, $t7
@@ -1441,6 +1442,10 @@ toggle_pause_state:
     lw $t0, is_paused
     xori $t0, $t0, 1        # Toggle between 0 and 1
     sw $t0, is_paused
+    
+    lw $t0, play_music
+    xori $t0, $t0, 1
+    sw $t0, play_music
     jr $ra
 
 ##############################################################################
@@ -1792,7 +1797,7 @@ stop_moving:
     syscall
 
     jal check_for_matches
-
+    jal count_viruses_by_color
     jal check_virus_win_condition     # Check for virus win and only generate new capsule if not win
     bnez $v0, game_loop  # If we got a win (return 1), skip to game loop
     
@@ -1800,7 +1805,6 @@ stop_moving:
     lw $t1, game_over_flag
     bnez $t1, game_loop  # If game over triggered, stop here
     
-    jal count_viruses_by_color
         
     # Erase current next capsule before generating new one
     jal erase_next_capsule
@@ -2596,6 +2600,9 @@ check_music_and_play:
     addi $sp, $sp, -8
     sw $ra, 0($sp)
     sw $s0, 4($sp)
+    
+    lw $t0, play_music
+    beqz $t0, end_check_music
     
     # Tick control
     lw $s0, music_tick_counter

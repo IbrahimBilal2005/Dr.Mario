@@ -328,6 +328,7 @@ main:
 
     jal draw_box            # Step 1: Draw the medicine bottle (Only Once)
     jal draw_viruses
+    jal count_viruses_by_color
     jal generate_capsule_colors_initial     # Generate both current and next capsule
 
     # Reset capsule positions to initial values
@@ -1062,7 +1063,7 @@ mark_bottom_row:
 
 next_bottom_col:
     addi $t2, $t2, 4         # Next column
-    li $t6, 80              # Width of row in bytes
+    li $t6, 256              # Width of row in bytes
     blt $t2, $t6, mark_bottom_row
     
     # NEW Mark all viruses as supported regardless of position
@@ -1092,7 +1093,7 @@ mark_viruses_col_loop:
     
 next_virus_col:
     addi $t2, $t2, 4         # Next column
-    li $t6, 80  # Width of row in bytes
+    li $t6, 256  # Width of row in bytes
     blt $t2, $t6, mark_viruses_col_loop
     
     addi $t1, $t1, 128       # Move down one row
@@ -1163,7 +1164,7 @@ mark_supported:
     
 next_scan_col:
     addi $t2, $t2, 4         # Next column
-    li $t6, 80              # Width of row in bytes
+    li $t6, 256              # Width of row in bytes
     blt $t2, $t6, col_scan_loop
     
     addi $t1, $t1, -128      # Move up one row
@@ -1229,7 +1230,7 @@ drop_col_loop:
     
 next_drop_col:
     addi $t2, $t2, 4         # Next column
-    li $t6, 80              # Width of row in bytes
+    li $t6, 256              # Width of row in bytes
     blt $t2, $t6, drop_col_loop
     
     addi $t1, $t1, -128      # Move up one row
@@ -1262,7 +1263,7 @@ clear_markers_col_loop:
     
 next_clear_col:
     addi $t2, $t2, 4         # Next column
-    li $t6, 80              # Width of row in bytes
+    li $t6, 256              # Width of row in bytes
     blt $t2, $t6, clear_markers_col_loop
     
     addi $t1, $t1, 128       # Move down one row
@@ -1321,7 +1322,6 @@ virus_loop:
     j virus_loop
 
 draw_viruses_done:
-    jal count_viruses_by_color  # Count and display viruses after generation
     lw $ra, 0($sp)
     addi $sp, $sp, 4
     jr $ra
@@ -1787,7 +1787,7 @@ stop_moving:
     li $a0, 48         # pitch = C3
     li $a1, 20         # duration (short blip)
     li $a2, 2          # instrument (square wave)
-    li $a3, 80         # volume
+    li $a3, 256         # volume
     li $v0, 31         # syscall: play sound
     syscall
 
@@ -1799,6 +1799,7 @@ stop_moving:
     # ONLY generate a new capsule if it wasn't a win
     lw $t1, game_over_flag
     bnez $t1, game_loop  # If game over triggered, stop here
+    
     jal count_viruses_by_color
         
     # Erase current next capsule before generating new one

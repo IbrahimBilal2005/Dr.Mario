@@ -257,23 +257,45 @@ move_left:
     lw $a0, capsule_left_pos
     lw $a1, capsule_right_pos
 
-    # Calculate current level (Y position / 128)
-    div $t3, $a0, 128  # Get current level (integer division)
-    mflo $t3           # Store quotient (level number)
+    # Determine if the capsule is vertical or horizontal
+    sub $t3, $a1, $a0  # Difference between positions
 
-    # Calculate left boundary: 12 pixels from start of level
-    mul $t2, $t3, 128  # Base of current level
-    addi $t2, $t2, 12  # Add 12 pixels
+    # If difference is 128, it's vertical
+    li $t4, 128
+    beq $t3, $t4, check_vertical_left
 
-    # Prevent moving past the left boundary
-    ble $a0, $t2, continue_fall  # If at left limit, don't move
+    # Otherwise, it's horizontal
+    j check_horizontal_left
 
-    # Calculate previous addresses to clear
-    add $t8, $t0, $a0  # Address of left half
-    add $t9, $t0, $a1  # Address of right half
+check_vertical_left:
+    # Check left of both top and bottom halves
+    subi $t7, $a0, 4  # Left of top half
+    add $t8, $t0, $t7
+    lw $t9, 0($t8)    # Load color of pixel
 
-    # Clear previous location
+    subi $t7, $a1, 4  # Left of bottom half
+    add $t8, $t0, $t7
+    lw $t9, 0($t8)    # Load color of pixel
+
+    or $t9, $t9, $t9  # If either pixel is nonzero (not black), stop
+    bnez $t9, continue_fall
+    j move_left_continue
+
+check_horizontal_left:
+    # Check only the leftmost pixel
+    subi $t7, $a0, 4  # Left of leftmost half
+    add $t8, $t0, $t7
+    lw $t9, 0($t8)    # Load color of pixel
+
+    bnez $t9, continue_fall  # If not black, don't move
+    j move_left_continue
+
+move_left_continue:
+    # Clear previous position (set to background color)
+    add $t8, $t0, $a0
     sw $zero, 0($t8)  # Clear left half
+
+    add $t9, $t0, $a1
     sw $zero, 0($t9)  # Clear right half
 
     # Move left by 1 pixel (4 bytes per pixel)
@@ -286,8 +308,12 @@ move_left:
 
     # Redraw capsule at new location
     jal draw_capsule
-    j move_down
-    jr $ra
+
+    j move_down  # Continue falling
+
+continue_fall:
+    j move_down  # Continue normal movement
+
 
 ##############################################################################
 # Function: move_right ('d' key)

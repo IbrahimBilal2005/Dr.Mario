@@ -6,7 +6,7 @@
 #
 # We assert that the code submitted here is entirely our own 
 # creation, and will indicate otherwise when it is not.
-#
+#r
 ######################## Bitmap Display Configuration ########################
 # - Unit width in pixels:       2
 # - Unit height in pixels:      2
@@ -21,8 +21,8 @@
 ##############################################################################
 ADDR_DSPL:  .word 0x10008000  # Address of the bitmap display
 ADDR_KBRD:  .word 0xffff0000  # Address of the keyboard
-
 row_width:  .word 256          # 64 pixels * 4 bytes per pixel
+
 gray_color: .word 0x808080      # Gray color
 color_black: .word 0x000000
 color_red:    .word 0xFF0000  # Red
@@ -30,12 +30,10 @@ color_blue:   .word 0x0000FF  # Blue
 color_yellow: .word 0xFFFF00  # Yellow
 color_white: .word 0xFFFFFF	# White 
 color_green: .word 0x39FF14 #Green
-
 color_dark_red:    .word 0x800000  # Dark red for viruses
 color_dark_blue:   .word 0x000080  # Dark blue for viruses
 color_dark_yellow: .word 0x808000  # Dark yellow for viruses
 
-game_over_flag: .word 0       # 0 = game running, 1 = game over
 
 GAME_OVER_ARRAY:
     .word
@@ -72,49 +70,15 @@ PAUSE_ARRAY:
     -1, 0, -1, 
     -1, 0, -1, 
     
-# Small virus icons for the status display (5x5 pixel arrays)
 VIRUS_ARRAY:
     .word
+    # Small virus icons for the status display (5x5 pixel arrays)
     0, -1, -1, -1, 0,     # Small red virus representation
     -1, -1, 0, -1, -1,
     -1, 0, -1, 0, -1,
     -1, -1, -1, -1, -1,
     0, -1, 0, -1, 0
     
-##############################################################################
-# Mutable Data
-##############################################################################
-capsule_left:  .word 0  	# Stores left half of capsule
-capsule_right: .word 0  	# Stores right half of capsule
-capsule_left_pos:  .word 552  	# Initial position of left half
-capsule_right_pos: .word 680  	# Initial position of right half
-
-#### Increase fall delay to slow down capsules
-fall_delay:    .word 40      	# Delay for gravity (milliseconds) 
-move_delay:    .word 12       	# Delay for controls (milliseconds)
-gravity_counter: .word 0     	# Counter for gravity application
-gravity_speed:   .word 50    	# Apply gravity every N frames
-
-ghost_color: .word 0xb0aeae   	# Gray color for ghost capsule
-ghost_left_pos:  .word 0      	# Position of left ghost capsule
-ghost_right_pos: .word 0      	# Position of right ghost capsule
-
-is_paused:      .word 0       # 0 = not paused, 1 = paused
-
-level: .word 1
-NUM_VIRUSES:  .word 3  # Number of viruses to draw at game start
-
-
-red_virus_count:    .word 0    # Counter for red viruses
-blue_virus_count:   .word 0    # Counter for blue viruses
-yellow_virus_count: .word 0    # Counter for yellow viruses
-
-current_note_index: .word 0
-note_timer:         .word 0
-
-music_tick_counter: .word 0       # Counter to track music update rate
-music_tick_speed:   .word 12       # Adjust this to change tempo (1 = every frame)
-
 theme_song:
     # Bar 1 
     .word 67, 40, 0, 90     # G4
@@ -319,24 +283,52 @@ theme_song:
     .word 58, 40, 1, 70     # A#3
     
     .word 0
-        
-            
     
+##############################################################################
+# Mutable Data
+##############################################################################
+capsule_left:  .word 0  	# Stores left half of capsule
+capsule_right: .word 0  	# Stores right half of capsule
+capsule_left_pos:  .word 552  	# Initial position of left half
+capsule_right_pos: .word 680  	# Initial position of right half
+
+next_capsule_left:  .word 0      # Stores color of next left half
+next_capsule_right: .word 0      # Stores color of next right half
+next_capsule_left_pos:  .word 328  # Position for preview left half (moved one row up)
+next_capsule_right_pos: .word 456  # Position for preview right half (moved one row up)
+
+ghost_color: .word 0xb0aeae   	# Gray color for ghost capsule
+ghost_left_pos:  .word 0      	# Position of left ghost capsule
+ghost_right_pos: .word 0      	# Position of right ghost capsule
+
+red_virus_count:    .word 0    # Counter for red viruses
+blue_virus_count:   .word 0    # Counter for blue viruses
+yellow_virus_count: .word 0    # Counter for yellow viruses
+NUM_VIRUSES:  .word 3  # Number of viruses to draw at game start
+
+current_note_index: .word 0
+note_timer:         .word 0
+music_tick_counter: .word 0       # Counter to track music update rate
+music_tick_speed:   .word 12       # Adjust this to change tempo (1 = every frame)
+
+game_over_flag: .word 0       # 0 = game running, 1 = game over
+is_paused:      .word 0       # 0 = not paused, 1 = paused
+level: .word 1
+fall_delay:    .word 40      	# Delay for gravity (milliseconds) 
+move_delay:    .word 12       	# Delay for controls (milliseconds)
+gravity_counter: .word 0     	# Counter for gravity application
+gravity_speed:   .word 50    	# Apply gravity every N frames
+
 ##############################################################################
 # Code
 ##############################################################################
 	.text
 	.globl main
 main:
-    lw $t1, gray_color  	# Load colors
-    lw $t4, color_red
-    lw $t5, color_blue
-    lw $t6, color_yellow
-    lw $t0, ADDR_DSPL   	# Load display base address
 
-    jal draw_box 			# Step 1: Draw the medicine bottle (Only Once)
+    jal draw_box            # Step 1: Draw the medicine bottle (Only Once)
     jal draw_viruses
-    jal generate_capsule_colors	# Step 2: Generate capsule colors
+    jal generate_capsule_colors_initial     # Generate both current and next capsule
 
     # Reset capsule positions to initial values
     li $t0, 552
@@ -344,17 +336,23 @@ main:
     li $t0, 680
     sw $t0, capsule_right_pos
     
+    # Set initial positions for preview capsule
+    li $t0, 328   # Position in the upper area (moved one row up)
+    sw $t0, next_capsule_left_pos
+li $t0, 456   # Position in the upper area (moved one row up)
+sw $t0, next_capsule_right_pos
+    
     # Reset ghost positions
     li $t0, 0
     sw $t0, ghost_left_pos
     sw $t0, ghost_right_pos
     
-    sw $zero, gravity_counter	    # Reset gravity counter
+    sw $zero, gravity_counter     # Reset gravity counter
     
-    jal draw_capsule  		# Draw capsule
+    jal draw_capsule       # Draw capsule
+    jal draw_next_capsule  # Draw preview capsule
 
 game_loop:
-    
     jal check_music_and_play     # play music if needed
 
     
@@ -553,11 +551,17 @@ generate_new_capsule:
     addi $sp, $sp, -4
     sw $ra, 0($sp)
 
-    # Reset capsule position to the top
-    li $t0, 552  # Reset to top row
-    li $t1, 680
-
-    # Before placing the new capsule, check if the positions are already occupied
+    # Move the "next" capsule to be the current capsule
+    lw $t0, next_capsule_left
+    lw $t1, next_capsule_right
+    sw $t0, capsule_left     # Set current capsule colors to the next ones
+    sw $t1, capsule_right
+    
+    # Reset capsule position to the start position
+    li $t0, 552  # Top row of playfield
+    li $t1, 680  # Top row of playfield
+    
+    # Check if start positions are already occupied
     lw $t2, ADDR_DSPL
     add $t3, $t2, $t0  # Address of left capsule position
     add $t4, $t2, $t1  # Address of right capsule position
@@ -574,8 +578,14 @@ generate_new_capsule:
     sw $t0, capsule_left_pos
     sw $t1, capsule_right_pos
     
-    jal generate_capsule_colors	# Generate new random colors for the capsule
-    jal draw_capsule	   	# Draw the new capsule
+    # Now generate colors for the next capsule
+    jal generate_next_capsule_colors
+    
+    # Draw current capsule
+    jal draw_capsule
+    
+    # Draw next capsule preview
+    jal draw_next_capsule
 
     # Restore return address
     lw $ra, 0($sp)
@@ -587,6 +597,137 @@ spawn_area_blocked:
     lw $ra, 0($sp)
     addi $sp, $sp, 4
     j game_over  # Jump to game over routine
+    
+    
+    
+    
+    ##############################################################################
+# Function: generate_capsule_colors_initial (Generate both capsules at start)
+##############################################################################
+generate_capsule_colors_initial:
+    # Save return address
+    addi $sp, $sp, -4
+    sw $ra, 0($sp)
+    
+    # Generate colors for current capsule
+    jal generate_capsule_colors
+    
+    # Generate colors for next capsule
+    jal generate_next_capsule_colors
+    
+    # Draw the next capsule in preview area
+    jal draw_next_capsule
+    
+    # Restore return address
+    lw $ra, 0($sp)
+    addi $sp, $sp, 4
+    jr $ra
+
+##############################################################################
+# Function: generate_next_capsule_colors (Random colors for next capsule)
+##############################################################################
+generate_next_capsule_colors:
+    # Get random colors for next capsule
+    li $v0, 42          # Random int syscall
+    li $a0, 0           # Random generator ID
+    li $a1, 3           # Upper bound (exclusive)
+    syscall
+    
+    # Set left half color based on random number
+    beq $a0, 0, next_left_red
+    beq $a0, 1, next_left_blue
+    j next_left_yellow
+
+next_left_red:
+    lw $t0, color_red
+    sw $t0, next_capsule_left
+    j next_right_color
+
+next_left_blue:
+    lw $t0, color_blue
+    sw $t0, next_capsule_left
+    j next_right_color
+
+next_left_yellow:
+    lw $t0, color_yellow
+    sw $t0, next_capsule_left
+
+next_right_color:
+    # Get random color for right half
+    li $v0, 42          # Random int syscall
+    li $a0, 0           # Random generator ID
+    li $a1, 3           # Upper bound (exclusive)
+    syscall
+    
+    # Set right half color based on random number
+    beq $a0, 0, next_right_red
+    beq $a0, 1, next_right_blue
+    j next_right_yellow
+
+next_right_red:
+    lw $t0, color_red
+    sw $t0, next_capsule_right
+    jr $ra
+
+next_right_blue:
+    lw $t0, color_blue
+    sw $t0, next_capsule_right
+    jr $ra
+
+next_right_yellow:
+    lw $t0, color_yellow
+    sw $t0, next_capsule_right
+    jr $ra
+
+##############################################################################
+# Function: draw_next_capsule (Draw the preview capsule)
+##############################################################################
+draw_next_capsule:
+    # Save return address
+    addi $sp, $sp, -4
+    sw $ra, 0($sp)
+    
+    # First erase previous next capsule
+    jal erase_next_capsule
+    
+    # Draw next capsule at preview position
+    lw $t0, ADDR_DSPL
+    lw $t1, next_capsule_left_pos
+    lw $t2, next_capsule_right_pos
+    
+    # Draw left half
+    add $t3, $t0, $t1
+    lw $t4, next_capsule_left
+    sw $t4, 0($t3)
+    
+    # Draw right half
+    add $t3, $t0, $t2
+    lw $t4, next_capsule_right
+    sw $t4, 0($t3)
+    
+    # Restore return address
+    lw $ra, 0($sp)
+    addi $sp, $sp, 4
+    jr $ra
+
+##############################################################################
+# Function: erase_next_capsule
+##############################################################################
+erase_next_capsule:
+    # Erase next capsule
+    lw $t0, ADDR_DSPL
+    lw $t1, next_capsule_left_pos
+    lw $t2, next_capsule_right_pos
+    
+    # Erase left half
+    add $t3, $t0, $t1
+    sw $zero, 0($t3)
+    
+    # Erase right half
+    add $t3, $t0, $t2
+    sw $zero, 0($t3)
+    
+    jr $ra
     
 ##############################################################################
 # Function: check_for_matches (Remove 4+ in a row of same color)
@@ -657,7 +798,7 @@ check_horiz:
     addi $s1, $s1, 4       # Move to the next pixel to the right
 
     # Stop if we cross row boundary
-    li $t6, 256
+    li $t6, 80
     andi $t5, $s1, 0xFC     # current column (in bytes)
     andi $t7, $t8, 0xFC     # original column
     sub $t5, $t5, $t7
@@ -865,7 +1006,6 @@ done_match_loop:
     lw $ra, 0($sp)
     addi $sp, $sp, 4
     jr $ra
-    
 ##############################################################################
 # Function: apply_gravity_to_floating_capsules
 # Identifies capsules that are floating and applies gravity to them
@@ -952,7 +1092,7 @@ mark_viruses_col_loop:
     
 next_virus_col:
     addi $t2, $t2, 4         # Next column
-    li $t6, 256              # Width of row in bytes
+    li $t6, 80  # Width of row in bytes
     blt $t2, $t6, mark_viruses_col_loop
     
     addi $t1, $t1, 128       # Move down one row
@@ -1023,7 +1163,7 @@ mark_supported:
     
 next_scan_col:
     addi $t2, $t2, 4         # Next column
-    li $t6, 256              # Width of row in bytes
+    li $t6, 80              # Width of row in bytes
     blt $t2, $t6, col_scan_loop
     
     addi $t1, $t1, -128      # Move up one row
@@ -1122,7 +1262,7 @@ clear_markers_col_loop:
     
 next_clear_col:
     addi $t2, $t2, 4         # Next column
-    li $t6, 256              # Width of row in bytes
+    li $t6, 80              # Width of row in bytes
     blt $t2, $t6, clear_markers_col_loop
     
     addi $t1, $t1, 128       # Move down one row
@@ -1376,6 +1516,11 @@ game_over_loop:
     j game_over_loop	    # Any other key just continues the loop
 
 restart_game: # initialize new game
+    
+    li $t0, 3
+    sw $t0, NUM_VIRUSES
+    li $t0, 50
+    sw $t0, gravity_speed
     sw $zero, game_over_flag	# Reset game over flag
     jal clear_screen 		#clear screen
     j main
@@ -1635,7 +1780,7 @@ move_down_continue:
     j game_loop            # Continue looping
 
 stop_moving:    
-    jal erase_ghost_capsule
+
     jal draw_capsule
     
     # Play sound: Block placed
@@ -1645,15 +1790,10 @@ stop_moving:
     li $a3, 80         # volume
     li $v0, 31         # syscall: play sound
     syscall
-    
-    # Reset ghost positions
-    li $t0, 0
-    sw $t0, ghost_left_pos
-    sw $t0, ghost_right_pos
+
     jal check_for_matches
     
-    # Check for virus win and only generate new capsule if not win
-    jal check_virus_win_condition
+    jal check_virus_win_condition     # Check for virus win and only generate new capsule if not win
     bnez $v0, game_loop  # If we got a win (return 1), skip to game loop
     
     # ONLY generate a new capsule if it wasn't a win
@@ -1661,14 +1801,15 @@ stop_moving:
     bnez $t1, game_loop  # If game over triggered, stop here
     
     li $t1, 0              # Row position
-    li $t2, 24              # Column position
-    li $t3, 7               # Width
+    li $t2, 24             # Column position
+    li $t3, 7              # Width
     li $t4, 7  
     jal clear_indicator_area
     
+    # Erase current next capsule before generating new one
+    jal erase_next_capsule
     jal generate_new_capsule
     j game_loop
-
 
 ##############################################################################
 # Function: move_down_fast ('s' key to drop quickly)
@@ -2337,19 +2478,13 @@ update_virus_indicators:
     lw $t0, ADDR_DSPL
     
     # Clear red virus indicator area
-    li $t1, 6               # Row position
+    li $t1, 0               # Row position
     li $t2, 24              # Column position
     li $t3, 7               # Width
-    li $t4, 7               # Height
+    li $t4, 30               # Height
     jal clear_indicator_area
     
-    # Clear blue virus indicator area
-    li $t1, 13              # Row position
-    jal clear_indicator_area
-    
-    # Clear yellow virus indicator area
-    li $t1, 20              # Row position
-    jal clear_indicator_area
+   
 
     # --- Now draw only the indicators that should be visible ---
     
@@ -2464,9 +2599,6 @@ clear_area_done:
     addi $sp, $sp, 16
     jr $ra
     
-    
-    
-    
 check_music_and_play:
     # Save registers
     addi $sp, $sp, -8
@@ -2519,3 +2651,9 @@ end_check_music:
     lw $s0, 4($sp)
     addi $sp, $sp, 8
     jr $ra
+    
+    
+    
+    
+    
+    

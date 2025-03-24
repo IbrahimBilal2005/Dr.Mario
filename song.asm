@@ -72,29 +72,10 @@ PAUSE_ARRAY:
     -1, 0, -1, 
     -1, 0, -1, 
     
-   
-
 # Small virus icons for the status display (5x5 pixel arrays)
-# 0 = blank space, -1 = pixel to draw
-RED_VIRUS_ARRAY:
+VIRUS_ARRAY:
     .word
     0, -1, -1, -1, 0,     # Small red virus representation
-    -1, -1, 0, -1, -1,
-    -1, 0, -1, 0, -1,
-    -1, -1, -1, -1, -1,
-    0, -1, 0, -1, 0
-
-BLUE_VIRUS_ARRAY:
-    .word
-    0, -1, -1, -1, 0,     # Small blue virus representation
-    -1, -1, 0, -1, -1,
-    -1, 0, -1, 0, -1,
-    -1, -1, -1, -1, -1,
-    0, -1, 0, -1, 0
-
-YELLOW_VIRUS_ARRAY:
-    .word
-    0, -1, -1, -1, 0,     # Small yellow virus representation
     -1, -1, 0, -1, -1,
     -1, 0, -1, 0, -1,
     -1, -1, -1, -1, -1,
@@ -110,7 +91,7 @@ capsule_right_pos: .word 680  	# Initial position of right half
 
 #### Increase fall delay to slow down capsules
 fall_delay:    .word 40      	# Delay for gravity (milliseconds) 
-move_delay:    .word 5       	# Delay for controls (milliseconds)
+move_delay:    .word 12       	# Delay for controls (milliseconds)
 gravity_counter: .word 0     	# Counter for gravity application
 gravity_speed:   .word 50    	# Apply gravity every N frames
 
@@ -420,6 +401,7 @@ skip_gravity:
     lw $t0, ADDR_KBRD         # Load keyboard address
     lw $t1, 0($t0)            # Read first word (1 if key is pressed)
     bne $t1, 1, game_loop     # If no key is pressed, continue loop
+    
     lw $t1, 4($t0)            # Load the actual key pressed
     
     beq $t1, 0x70, initiate_pause 	# 'p' - Toggle pause state
@@ -435,7 +417,8 @@ skip_gravity:
         jal erase_ghost_capsule  	# Erase ghost capsule first
         jal erase_capsule 	  	# Erase the current capsule
         jal move_left     	  	# Determine updated location based on left movement
-        jal draw_capsule     	  	# Redraw the capsule based on updated positions
+        jal draw_capsule  
+           	  	# Redraw the capsule based on updated positions
         j game_loop     	  	# Continue with the game loop
     initiate_right:
         jal erase_ghost_capsule  	# Erase ghost capsule first
@@ -674,7 +657,7 @@ check_horiz:
     addi $s1, $s1, 4       # Move to the next pixel to the right
 
     # Stop if we cross row boundary
-    li $t6, 256
+    li $t6, 80
     andi $t5, $s1, 0xFC     # current column (in bytes)
     andi $t7, $t8, 0xFC     # original column
     sub $t5, $t5, $t7
@@ -1652,7 +1635,6 @@ move_down_continue:
     j game_loop            # Continue looping
 
 stop_moving:    
-    jal erase_ghost_capsule
     jal draw_capsule
     
     # Play sound: Block placed
@@ -1663,10 +1645,6 @@ stop_moving:
     li $v0, 31         # syscall: play sound
     syscall
     
-    # Reset ghost positions
-    li $t0, 0
-    sw $t0, ghost_left_pos
-    sw $t0, ghost_right_pos
     jal check_for_matches
     
     # Check for virus win and only generate new capsule if not win
@@ -1676,6 +1654,7 @@ stop_moving:
     # ONLY generate a new capsule if it wasn't a win
     lw $t1, game_over_flag
     bnez $t1, game_loop  # If game over triggered, stop here
+    
     jal generate_new_capsule
     j game_loop
 
@@ -2347,27 +2326,21 @@ update_virus_indicators:
     lw $t0, ADDR_DSPL
     
     # Clear red virus indicator area
-    li $t1, 6               # Row position
+    li $t1, 1               # Row position
     li $t2, 24              # Column position
     li $t3, 7               # Width
-    li $t4, 7               # Height
+    li $t4, 30               # Height
     jal clear_indicator_area
     
-    # Clear blue virus indicator area
-    li $t1, 13              # Row position
-    jal clear_indicator_area
-    
-    # Clear yellow virus indicator area
-    li $t1, 20              # Row position
-    jal clear_indicator_area
-    
+   
+
     # --- Now draw only the indicators that should be visible ---
     
     # Draw red virus indicator only if viruses remain
     lw $t1, red_virus_count
     beqz $t1, skip_red_virus
     
-    la $a0, RED_VIRUS_ARRAY
+    la $a0, VIRUS_ARRAY
     li $a1, 7               # Row position
     li $a2, 25              # Column position
     li $a3, 5               # Width
@@ -2387,7 +2360,7 @@ skip_red_virus:
     lw $t1, blue_virus_count
     beqz $t1, skip_blue_virus
     
-    la $a0, BLUE_VIRUS_ARRAY
+    la $a0, VIRUS_ARRAY
     li $a1, 14              # Row position
     li $a2, 25              # Column position
     li $a3, 5               # Width
@@ -2407,7 +2380,7 @@ skip_blue_virus:
     lw $t1, yellow_virus_count
     beqz $t1, skip_yellow_virus
     
-    la $a0, YELLOW_VIRUS_ARRAY
+    la $a0, VIRUS_ARRAY
     li $a1, 21              # Row position
     li $a2, 25              # Column position
     li $a3, 5               # Width
@@ -2474,47 +2447,58 @@ clear_area_done:
     addi $sp, $sp, 16
     jr $ra
     
+    
+    
+    
 check_music_and_play:
+    # Save registers
+    addi $sp, $sp, -8
+    sw $ra, 0($sp)
+    sw $s0, 4($sp)
+    
     # Tick control
-    lw $t0, music_tick_counter
-    addi $t0, $t0, 1
-    sw $t0, music_tick_counter
-
+    lw $s0, music_tick_counter
+    addi $s0, $s0, 1
+    sw $s0, music_tick_counter
     lw $t1, music_tick_speed
-    blt $t0, $t1, end_check_music  # Not time to play next note
-    sw $zero, music_tick_counter  # Reset music tick
-
-    # Load current note index
-    lw $t2, current_note_index       # $t2 = note offset (still in words)
-    la $t3, theme_song               # $t3 = base address of theme_song
-    sll $t4, $t2, 2                  # Convert word offset to byte offset
-    add $t3, $t3, $t4                # Point to current note
-
-    lw $t5, 0($t3)                   # Load pitch
-    beqz $t5, reset_music            # If pitch is 0, reset song
-
-    lw $t6, 4($t3)                   # Load duration
-    lw $t7, 8($t3)                   # Load instrument
-    lw $t8, 12($t3)                  # Load volume
-
-    # Play sound: $a0 = pitch, $a1 = duration, $a2 = instrument, $a3 = volume
+    blt $s0, $t1, end_check_music  # Not time to play next note
+    
+    # Reset counter
+    sw $zero, music_tick_counter
+    
+    # Load current note index and compute address
+    lw $t2, current_note_index
+    la $t3, theme_song
+    mul $t4, $t2, 16             # Each note is 4 words (16 bytes)
+    add $t3, $t3, $t4
+    
+    # Load note data
+    lw $t5, 0($t3)               # Pitch
+    beqz $t5, reset_music        # End of song marker
+    
+    lw $t6, 4($t3)               # Duration
+    lw $t7, 8($t3)               # Instrument
+    lw $t8, 12($t3)              # Volume
+    
+    # Play sound
     move $a0, $t5
     move $a1, $t6
     move $a2, $t7
     move $a3, $t8
-
-    li $v0, 31         # syscall: play sound
+    li $v0, 31
     syscall
-
+    
     # Move to next note
-    addi $t2, $t2, 4   # Each note = 4 words
+    addi $t2, $t2, 1
     sw $t2, current_note_index
-
-    jr $ra
-
+    j end_check_music
+    
 reset_music:
-    sw $zero, current_note_index   # Restart from first note
-    jr $ra
-
+    sw $zero, current_note_index
+    
 end_check_music:
+    # Restore registers
+    lw $ra, 0($sp)
+    lw $s0, 4($sp)
+    addi $sp, $sp, 8
     jr $ra

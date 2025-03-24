@@ -836,61 +836,231 @@ done_match_loop:
     
 ##############################################################################
 # Function: apply_gravity_to_floating_capsules
+# Identifies capsules that are floating and applies gravity to them
 ##############################################################################
 apply_gravity_to_floating_capsules:
+    addi $sp, $sp, -20
+    sw $ra, 0($sp)
+    sw $s0, 4($sp)
+    sw $s1, 8($sp)
+    sw $s2, 12($sp)
+    sw $s3, 16($sp)
+
+    # Step 1: Mark all supported capsules
+    jal mark_supported_capsules
+    
+    # Step 2: Make all unsupported capsules fall
+    jal drop_unsupported_capsules
+    
+    # Restore registers and return
+    lw $ra, 0($sp)
+    lw $s0, 4($sp)
+    lw $s1, 8($sp)
+    lw $s2, 12($sp)
+    lw $s3, 16($sp)
+    addi $sp, $sp, 20
+    jr $ra
+
+##############################################################################
+# Function: mark_supported_capsules
+# Marks all capsules that are supported (on bottom row or connected to a supported capsule)
+# Uses the color's alpha channel (MSB) as a temporary marker for "supported" status
+##############################################################################
+mark_supported_capsules:
     addi $sp, $sp, -4
     sw $ra, 0($sp)
-
-gravity_loop:
-    li $t7, 0                # change_flag = 0
-    lw $t0, ADDR_DSPL        # $t0 = base display address
-    li $t1, 3456             # start from second-to-last row (row 60)
-    li $t6, 416              # top of playable area
-
-row_loop:
-    li $t2, 0                # column offset
-
-col_loop:
-    add $t3, $t1, $t2        # pixel index = row + col
-    add $t4, $t0, $t3        # pixel address
-    lw $t5, 0($t4)           # color at (row, col)
-
-    # Skip black or gray
-    lw $s1, color_black
-    beq $t5, $s1, skip
-    lw $s2, gray_color
-    beq $t5, $s2, skip
-
-    # Check below
-    addi $t9, $t3, 128       # pixel below
-    li $s0, 3584
-    bgt $t9, $s0, skip       # skip if out of bounds
-
-    add $t8, $t0, $t9
-    lw $s3, 0($t8)
-    bne $s3, $s1, skip       # if pixel below is NOT black, skip
-
     
+    lw $t0, ADDR_DSPL        # $t0 = base display address
+    
+    # First pass: Mark all capsules in the bottom row (row 27) as supported
+    li $t1, 3456             # Start of bottom row (row 27)
+    li $t2, 0                # Column counter
+    
+mark_bottom_row:
+    add $t3, $t1, $t2        # Pixel index = row + col
+    add $t4, $t0, $t3        # Pixel address
+    lw $t5, 0($t4)           # Color at (row, col)
+    
+    # Skip if black or already marked
+    beqz $t5, next_bottom_col
+    
+    # Skip if it's a wall (gray color)
+    lw $t6, gray_color
+    beq $t5, $t6, next_bottom_col
+    
+    # Mark as supported by setting the MSB to 1
+    ori $t5, $t5, 0x80000000
+    sw $t5, 0($t4)
 
-    # Move pixel down
-    sw $zero, 0($t4)         # clear current
-    sw $t5, 0($t8)           # move to below
-    li $t7, 1                # set change_flag
-
-skip:
-    addi $t2, $t2, 4
-    li $s1, 256
-    blt $t2, $s1, col_loop
-
-    addi $t1, $t1, -128
-    bge $t1, $t6, row_loop
-
-    bnez $t7, gravity_loop   # Repeat if changes occurred
-
+next_bottom_col:
+    addi $t2, $t2, 4         # Next column
+    li $t6, 256              # Width of row in bytes
+    blt $t2, $t6, mark_bottom_row
+    
+    # Now propagate the "supported" status upward
+    li $s0, 1                # Changes made flag
+    
+propagate_loop:
+    beqz $s0, done_marking   # If no changes made in the last pass, we're done
+    li $s0, 0                # Reset changes flag
+    
+    li $t1, 3328             # Start from row 26 (second from bottom)
+    li $t9, 416              # Top of playable area
+    
+row_scan_loop:
+    li $t2, 0                # Column counter
+    
+col_scan_loop:
+    add $t3, $t1, $t2        # Pixel index = row + col
+    add $t4, $t0, $t3        # Pixel address
+    lw $t5, 0($t4)           # Color at current position
+    
+    # Skip if black, wall, or already marked
+    beqz $t5, next_scan_col
+    lw $t6, gray_color
+    beq $t5, $t6, next_scan_col
+    andi $t7, $t5, 0x80000000
+    bnez $t7, next_scan_col  # Already marked
+    
+    # Check if any adjacent cell is supported
+    # Check below (most common case)
+    addi $t7, $t3, 128       # Position below
+    add $t8, $t0, $t7
+    lw $t6, 0($t8)
+    andi $t6, $t6, 0x80000000
+    bnez $t6, mark_supported
+    
+    # Check left
+    addi $t7, $t3, -4        # Position to left
+    add $t8, $t0, $t7
+    lw $t6, 0($t8)
+    andi $t6, $t6, 0x80000000
+    bnez $t6, mark_supported
+    
+    # Check right
+    addi $t7, $t3, 4         # Position to right
+    add $t8, $t0, $t7
+    lw $t6, 0($t8)
+    andi $t6, $t6, 0x80000000
+    bnez $t6, mark_supported
+    
+    # Not supported by any adjacent cell
+    j next_scan_col
+    
+mark_supported:
+    # Mark current cell as supported
+    ori $t5, $t5, 0x80000000
+    sw $t5, 0($t4)
+    li $s0, 1                # Flag that changes were made
+    
+next_scan_col:
+    addi $t2, $t2, 4         # Next column
+    li $t6, 256              # Width of row in bytes
+    blt $t2, $t6, col_scan_loop
+    
+    addi $t1, $t1, -128      # Move up one row
+    bge $t1, $t9, row_scan_loop
+    
+    # If changes were made, do another pass
+    bnez $s0, propagate_loop
+    
+done_marking:
     lw $ra, 0($sp)
     addi $sp, $sp, 4
     jr $ra
+
+##############################################################################
+# Function: drop_unsupported_capsules
+# Makes all unsupported capsules fall down
+##############################################################################
+drop_unsupported_capsules:
+    addi $sp, $sp, -4
+    sw $ra, 0($sp)
     
+    lw $t0, ADDR_DSPL        # $t0 = base display address
+    
+    # Repeat until no more changes occur
+    li $s0, 1                # Changes made flag
+    
+drop_loop:
+    beqz $s0, done_dropping  # If no changes were made, we're done
+    li $s0, 0                # Reset changes flag
+    
+    # Scan from second-to-bottom row upward
+    li $t1, 3328             # Start from row 26 (second from bottom)
+    li $t9, 416              # Top of playable area
+    
+drop_row_loop:
+    li $t2, 0                # Column counter
+    
+drop_col_loop:
+    add $t3, $t1, $t2        # Pixel index = row + col
+    add $t4, $t0, $t3        # Pixel address
+    lw $t5, 0($t4)           # Color at current position
+    
+    # Skip if black, wall, or supported
+    beqz $t5, next_drop_col
+    lw $t6, gray_color
+    beq $t5, $t6, next_drop_col
+    andi $t6, $t5, 0x80000000
+    bnez $t6, next_drop_col  # Supported capsule
+    
+    # Check if space below is empty
+    addi $t7, $t3, 128       # Position below
+    add $t8, $t0, $t7
+    lw $t6, 0($t8)
+    bnez $t6, next_drop_col  # Something below, can't drop
+    
+    # Drop the capsule down one row
+    andi $t5, $t5, 0x7FFFFFFF  # Clear the marker bit
+    sw $zero, 0($t4)           # Clear current position
+    sw $t5, 0($t8)             # Move to position below
+    li $s0, 1                  # Flag that changes were made
+    
+next_drop_col:
+    addi $t2, $t2, 4         # Next column
+    li $t6, 256              # Width of row in bytes
+    blt $t2, $t6, drop_col_loop
+    
+    addi $t1, $t1, -128      # Move up one row
+    bge $t1, $t9, drop_row_loop
+    
+    # If changes were made, do another pass
+    bnez $s0, drop_loop
+    
+done_dropping:
+    # Final pass to clear all marker bits from capsules
+    li $t1, 416              # Start from top of playable area
+    li $t9, 3584             # End of playable area
+    
+clear_markers_row_loop:
+    li $t2, 0                # Column counter
+    
+clear_markers_col_loop:
+    add $t3, $t1, $t2        # Pixel index = row + col
+    add $t4, $t0, $t3        # Pixel address
+    lw $t5, 0($t4)           # Color at current position
+    
+    # Skip if black or wall
+    beqz $t5, next_clear_col
+    lw $t6, gray_color
+    beq $t5, $t6, next_clear_col
+    
+    # Clear marker bit
+    andi $t5, $t5, 0x7FFFFFFF
+    sw $t5, 0($t4)
+    
+next_clear_col:
+    addi $t2, $t2, 4         # Next column
+    li $t6, 256              # Width of row in bytes
+    blt $t2, $t6, clear_markers_col_loop
+    
+    addi $t1, $t1, 128       # Move down one row
+    ble $t1, $t9, clear_markers_row_loop
+    
+    lw $ra, 0($sp)
+    addi $sp, $sp, 4
+    jr $ra
     
     
  

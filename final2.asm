@@ -30,9 +30,14 @@ color_blue:   .word 0x0000FF  # Blue
 color_yellow: .word 0xFFFF00  # Yellow
 color_white: .word 0xFFFFFF	# White 
 color_green: .word 0x39FF14 #Green
+
 color_dark_red:    .word 0x800000  # Dark red for viruses
 color_dark_blue:   .word 0x000080  # Dark blue for viruses
 color_dark_yellow: .word 0x808000  # Dark yellow for viruses
+
+color_dark_red_in:    .word 0x800001  # Dark red for viruses
+color_dark_blue_in:   .word 0x000081  # Dark blue for viruses
+color_dark_yellow_in: .word 0x808001  # Dark yellow for viruses
 
 
 GAME_OVER_ARRAY:
@@ -1261,6 +1266,12 @@ col_scan_loop:
     beq  $t5, $t6, next_scan_col
     andi $t7, $t5, 0x80000000
     bnez $t7, next_scan_col  # Already marked as supported
+    lw $t8, color_dark_red_in
+    beq $t5, $t8, next_scan_col
+    lw $t8, color_dark_blue_in
+    beq $t5, $t8, next_scan_col
+    lw $t8, color_dark_yellow_in
+    beq $t5, $t8, next_scan_col
     
     #--------------------------------------------------------------
     # Check if any adjacent cell is supported
@@ -1361,6 +1372,12 @@ drop_col_loop:
     beq $t5, $s5, next_drop_col              # Skip if wall
     andi $t6, $t5, 0xC0000000                # Check supported (0x80) or virus (0x40) bits
     bnez $t6, next_drop_col                  # Skip if either bit is set
+    lw $t8, color_dark_red_in
+    beq $t5, $t8, next_scan_col
+    lw $t8, color_dark_blue_in
+    beq $t5, $t8, next_scan_col
+    lw $t8, color_dark_yellow_in
+    beq $t5, $t8, next_scan_col
     
     # Check if space below is empty
     add $t7, $t3, $s3                        # Position below (+128 bytes)
@@ -1467,7 +1484,6 @@ draw_viruses_done:
     addi $sp, $sp, 4
     jr $ra
  
-    
 ##############################################################################
 # Function to return dark version of a color (for viruses)
 ##############################################################################
@@ -1753,11 +1769,6 @@ clear_loop:
     addi $sp, $sp, 4
     jr $ra
    
-    
-     
-      
-       
-  
 ##############################################################################
 # Function: draw_box (Medicine Bottle)
 ##############################################################################
@@ -1828,20 +1839,6 @@ bottom_loop:
     addi $sp, $sp, 4
     jr $ra  # Return
     
-
-
-
-
-
-
-
-
-#movement 
-
-
-
-
-
 ##############################################################################
 # Function: move_down (Apply Gravity)
 ##############################################################################
@@ -2660,7 +2657,7 @@ update_virus_indicators:
     li $a2, 25              # Column position
     li $a3, 5               # Width
     li $t0, 5               # Height
-    lw $t2, color_dark_red  # Use virus color
+    lw $t2, color_dark_red_in  # Use virus color
     
     # Push additional parameters on stack
     addi $sp, $sp, -8
@@ -2680,7 +2677,7 @@ skip_red_virus:
     li $a2, 25              # Column position
     li $a3, 5               # Width
     li $t0, 5               # Height
-    lw $t2, color_dark_blue # Use virus color
+    lw $t2, color_dark_blue_in # Use virus color
     
     # Push additional parameters on stack
     addi $sp, $sp, -8
@@ -2700,7 +2697,7 @@ skip_blue_virus:
     li $a2, 25              # Column position
     li $a3, 5               # Width
     li $t0, 5               # Height
-    lw $t2, color_dark_yellow # Use virus color
+    lw $t2, color_dark_yellow_in # Use virus color
     
     # Push additional parameters on stack
     addi $sp, $sp, -8
