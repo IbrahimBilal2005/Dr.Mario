@@ -10,10 +10,11 @@ Completed:
 3. (4) Game over and restart
 4. (6) Pause
 5. (8) Ghost capsule
-6. (7) Levels 
-7. (14) Viruse Indicators on the side
-8. (11) Preview next capsule
-9. (5) Sound effects
+6. (7) Levels
+7. (13) Draw dr mario and viruse indicators on the side
+8. (14) update virus indicators as they are removed
+9. (11) Preview next capsule
+10. (5) Sound effects
 
 
 Hard Features
