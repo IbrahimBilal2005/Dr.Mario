@@ -1,0 +1,6 @@
+# Exclude all .asm files from language stats
+*.asm linguist-generated
+
+# Re-include specific files you want to count in language stats
+drmario.asm linguist-language=Assembly
+final5.asm linguist-language=Assembly
